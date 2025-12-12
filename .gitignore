@@ -1,0 +1,88 @@
+# Rust / Tauri 后端
+src-tauri/target/
+src-tauri/Cargo.lock
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# 前端 (Node.js / React)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri 构建产物
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/gen/
+
+# 前端构建缓存
+.vite/
+.turbo/
+.next/
+out/
+
+# 日志文件
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# SQLite 数据库文件
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# 测试覆盖率
+coverage/
+*.lcov
+.nyc_output/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 密钥和证书
+*.pem
+*.key
+*.crt
+*.p12
+
+# macOS
+*.dmg
+
+# Windows
+*.exe
+*.msi
