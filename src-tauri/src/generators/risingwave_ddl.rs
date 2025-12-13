@@ -7,8 +7,8 @@ pub struct RisingWaveDDLGenerator;
 
 impl RisingWaveDDLGenerator {
     /// 生成创建 ods schema 的语句
-    pub fn generate_create_schema_ddl(string: String) -> String {
-        "CREATE SCHEMA IF NOT EXISTS ods_{};".format(string).to_string()
+    pub fn generate_create_schema_ddl(database_name: &String) -> String {
+        format!("CREATE SCHEMA IF NOT EXISTS ods_{};", database_name)
     }
 
     /// 生成创建 SECRET 的语句（用于存储 MySQL 密码）
@@ -58,7 +58,7 @@ impl RisingWaveDDLGenerator {
         let server_id: u32 = rand::thread_rng().gen_range(5000..9999);
 
         // Source 命名: ods.ods_{mysql_database}
-        let source_name = format!("ods.ods_{}", mysql_database);
+        let source_name = format!("ods_{}_source", mysql_database);
         let secret_name = Self::get_secret_name(mysql_config);
 
         let ddl = format!(
@@ -91,8 +91,8 @@ impl RisingWaveDDLGenerator {
         mysql_table: &str,
     ) -> Result<String> {
         // Table 在 ods schema 下，直接使用表名
-        let table_name = format!("ods.{}", mysql_table);
-        let source_name = format!("ods.ods_{}", mysql_database);
+        let table_name = format!("ods_{}.{}", mysql_database, mysql_table);
+        let source_name = format!("ods_{}_source", mysql_database);
 
         // 使用 (*) 语法自动推断所有列
         let ddl = format!(
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_generate_schema_ddl() {
-        let ddl = RisingWaveDDLGenerator::generate_create_schema_ddl("test".to_string());
+        let ddl = RisingWaveDDLGenerator::generate_create_schema_ddl(&"test".to_string());
         assert_eq!(ddl, "CREATE SCHEMA IF NOT EXISTS ods_test;");
     }
 
@@ -230,8 +230,8 @@ mod tests {
             updated_at: chrono::Utc::now(),
         };
 
-        let ddl = RisingWaveDDLGenerator::generate_source_ddl(&config, "apnv3").unwrap();
-        assert!(ddl.contains("CREATE SOURCE IF NOT EXISTS ods.ods_apnv3"));
+        let ddl = RisingWaveDDLGenerator::generate_source_ddl(&config, "test").unwrap();
+        assert!(ddl.contains("CREATE SOURCE IF NOT EXISTS ods_test_source"));
         assert!(ddl.contains("connector = 'mysql-cdc'"));
         assert!(ddl.contains("auto.schema.change = 'true'"));
         assert!(ddl.contains("password = secret test_pwd"));
@@ -239,8 +239,8 @@ mod tests {
 
     #[test]
     fn test_generate_table_ddl() {
-        let ddl = RisingWaveDDLGenerator::generate_table_ddl("apnv3", "users").unwrap();
-        assert!(ddl.contains("CREATE TABLE IF NOT EXISTS ods.users (*)"));
-        assert!(ddl.contains("FROM ods.ods_apnv3 TABLE 'apnv3.users'"));
+        let ddl = RisingWaveDDLGenerator::generate_table_ddl("test", "users").unwrap();
+        assert!(ddl.contains("CREATE TABLE IF NOT EXISTS ods_test.users (*)"));
+        assert!(ddl.contains("FROM ods_test_source TABLE 'test.users'"));
     }
 }

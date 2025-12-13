@@ -51,6 +51,7 @@ async fn main() {
             // 任务管理相关命令
             commands::task::get_task_history,
             commands::task::get_task_detail,
+            commands::task::get_task_logs,
             commands::task::cancel_task,
         ])
         .setup(|app| {
