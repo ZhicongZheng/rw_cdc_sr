@@ -102,26 +102,90 @@ impl SyncEngine {
     ) -> Result<()> {
         let task_repo = TaskRepository::new(&app_db);
 
-        // Step 1: 获取 MySQL 表结构
+        // 第一步：从 MySQL 获取表结构
+        let schema = Self::fetch_mysql_schema(
+            &task_repo,
+            task_id,
+            &mysql_config,
+            &request,
+        ).await?;
+
+        // 第二步：设置 RisingWave（schema、secret、source、table、sink）
+        let rw_pool = Self::setup_risingwave(
+            &task_repo,
+            task_id,
+            &mysql_config,
+            &rw_config,
+            &request
+        ).await?;
+
+        // 第三步：设置 StarRocks（数据库、表）
+        let sr_conn = Self::setup_starrocks(
+            &task_repo,
+            task_id,
+            &sr_config,
+            &request,
+            &schema,
+        ).await?;
+
+        // 第四步：创建 Sink 到 StarRocks
+        Self::sink_to_starrocks(
+            &task_repo,
+            task_id,
+            &sr_config,
+            &request,
+            &schema,
+            &rw_pool,
+        ).await?;
+
+        // 完成日志
+        task_repo
+            .add_log(
+                task_id,
+                "info",
+                &format!(
+                    "Successfully synced {}.{} to {}.{}",
+                    request.mysql_database,
+                    request.mysql_table,
+                    request.target_database,
+                    request.target_table
+                ),
+            )
+            .await?;
+
+        // 关闭连接
+        rw_pool.close().await;
+        let _ = sr_conn.disconnect().await;
+
+        Ok(())
+    }
+
+    /// 第一步：从 MySQL 获取表结构
+    async fn fetch_mysql_schema(
+        task_repo: &TaskRepository<'_>,
+        task_id: i64,
+        mysql_config: &DatabaseConfig,
+        request: &SyncRequest,
+    ) -> Result<crate::models::TableSchema> {
         task_repo
             .add_log(task_id, "info", "Fetching MySQL table schema...")
             .await?;
 
         let schema = MetadataService::get_mysql_table_schema(
-            &mysql_config,
+            mysql_config,
             &request.mysql_database,
             &request.mysql_table,
         )
-            .await
-            .map_err(|e| {
-                tracing::error!(
+        .await
+        .map_err(|e| {
+            tracing::error!(
                 "Failed to fetch schema for {}.{}: {}",
                 request.mysql_database,
                 request.mysql_table,
                 e
             );
-                e
-            })?;
+            e
+        })?;
 
         tracing::info!(
             "Fetched schema for {}.{}: {} columns, {} primary keys",
@@ -131,89 +195,82 @@ impl SyncEngine {
             schema.primary_keys.len()
         );
 
-        // Step 2: 连接到 RisingWave
+        Ok(schema)
+    }
+
+    /// 第二步：设置 RisingWave（schema、secret、source、table、sink）
+    async fn setup_risingwave(
+        task_repo: &TaskRepository<'_>,
+        task_id: i64,
+        mysql_config: &DatabaseConfig,
+        rw_config: &DatabaseConfig,
+        request: &SyncRequest
+    ) -> Result<PgPool> {
+        // 连接到 RisingWave
         task_repo
             .add_log(task_id, "info", "Connecting to RisingWave...")
             .await?;
 
-        let rw_opts = ConnectionService::build_postgres_options_from_config(&rw_config);
+        let rw_opts = ConnectionService::build_postgres_options_from_config(rw_config);
         let rw_pool = PgPool::connect_with(rw_opts).await.map_err(|e| {
             tracing::error!("Failed to connect to RisingWave: {}", e);
             e
         })?;
         tracing::info!("Successfully connected to RisingWave");
 
-        // Step 3: 创建 ods schema（如果不存在）
+        // 创建 ods schema
         task_repo
             .add_log(task_id, "info", "Creating ods schema in RisingWave...")
             .await?;
 
-        let schema_ddl =
-            RisingWaveDDLGenerator::generate_create_schema_ddl(&request.mysql_database);
+        let schema_ddl = RisingWaveDDLGenerator::generate_create_schema_ddl(&request.mysql_database);
         tracing::debug!("Schema DDL: {}", schema_ddl);
-        sqlx::query(&schema_ddl)
-            .execute(&rw_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create ods schema: {}", e);
-                e
-            })?;
+        sqlx::query(&schema_ddl).execute(&rw_pool).await.map_err(|e| {
+            tracing::error!("Failed to create ods schema: {}", e);
+            e
+        })?;
         tracing::info!("Ensured ods schema exists");
 
-        // Step 4: 创建 SECRET（如果不存在）
+        // 创建 SECRET
         task_repo
             .add_log(task_id, "info", "Creating secret for MySQL password...")
             .await?;
 
-        let secret_ddl = RisingWaveDDLGenerator::generate_secret_ddl(&mysql_config)?;
+        let secret_ddl = RisingWaveDDLGenerator::generate_secret_ddl(mysql_config)?;
         tracing::debug!("Secret DDL: {}", secret_ddl);
-        sqlx::query(&secret_ddl)
-            .execute(&rw_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create secret: {}", e);
-                e
-            })?;
+        sqlx::query(&secret_ddl).execute(&rw_pool).await.map_err(|e| {
+            tracing::error!("Failed to create secret: {}", e);
+            e
+        })?;
         tracing::info!("Ensured secret exists");
 
-        // Step 5: 如果需要，删除现有的 RisingWave 对象
+        // 如果需要，删除现有对象
         if request.options.recreate_rw_source {
             task_repo
                 .add_log(task_id, "info", "Dropping existing RisingWave objects...")
                 .await?;
 
-            Self::drop_risingwave_objects(&rw_pool, &request.mysql_database, &request.mysql_table)
-                .await?;
+            Self::drop_risingwave_objects(&rw_pool, &request.mysql_database, &request.mysql_table).await?;
         }
 
-        // Step 6: 创建数据库级别的 CDC Source（如果不存在）
+        // 创建数据库级别的 CDC Source
         task_repo
             .add_log(
                 task_id,
                 "info",
-                &format!(
-                    "Creating RisingWave CDC source for database {}...",
-                    request.mysql_database
-                ),
+                &format!("Creating RisingWave CDC source for database {}...", request.mysql_database),
             )
             .await?;
 
-        let source_ddl =
-            RisingWaveDDLGenerator::generate_source_ddl(&mysql_config, &request.mysql_database)?;
+        let source_ddl = RisingWaveDDLGenerator::generate_source_ddl(mysql_config, &request.mysql_database)?;
         tracing::debug!("Source DDL: {}", source_ddl);
-        sqlx::query(&source_ddl)
-            .execute(&rw_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create RisingWave source: {}", e);
-                e
-            })?;
-        tracing::info!(
-            "Successfully created RisingWave CDC source for database {}",
-            request.mysql_database
-        );
+        sqlx::query(&source_ddl).execute(&rw_pool).await.map_err(|e| {
+            tracing::error!("Failed to create RisingWave source: {}", e);
+            e
+        })?;
+        tracing::info!("Successfully created RisingWave CDC source for database {}", request.mysql_database);
 
-        // Step 7: 在 RisingWave 中创建 Table（使用简化语法）
+        // 创建 Table
         task_repo
             .add_log(
                 task_id,
@@ -222,29 +279,30 @@ impl SyncEngine {
             )
             .await?;
 
-        let table_ddl = RisingWaveDDLGenerator::generate_table_ddl(
-            &request.mysql_database,
-            &request.mysql_table,
-        )?;
+        let table_ddl = RisingWaveDDLGenerator::generate_table_ddl(&request.mysql_database, &request.mysql_table)?;
         tracing::debug!("Table DDL: {}", table_ddl);
-        sqlx::query(&table_ddl)
-            .execute(&rw_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create RisingWave table: {}", e);
-                e
-            })?;
-        tracing::info!(
-            "Successfully created RisingWave table ods.{}",
-            request.mysql_table
-        );
+        sqlx::query(&table_ddl).execute(&rw_pool).await.map_err(|e| {
+            tracing::error!("Failed to create RisingWave table: {}", e);
+            e
+        })?;
+        tracing::info!("Successfully created RisingWave table ods.{}", request.mysql_table);
 
-        // Step 8: 连接到 StarRocks
+        Ok(rw_pool)
+    }
+
+    /// 第三步：设置 StarRocks（数据库、表）
+    async fn setup_starrocks(
+        task_repo: &TaskRepository<'_>,
+        task_id: i64,
+        sr_config: &DatabaseConfig,
+        request: &SyncRequest,
+        schema: &crate::models::TableSchema,
+    ) -> Result<mysql_async::Conn> {
+        // 连接到 StarRocks
         task_repo
             .add_log(task_id, "info", "Connecting to StarRocks...")
             .await?;
 
-        // 使用 mysql_async 连接 StarRocks（避免 sqlx 的 SET 语句问题）
         let mut sr_opts_builder = mysql_async::OptsBuilder::default()
             .ip_or_hostname(&sr_config.host)
             .tcp_port(sr_config.port)
@@ -263,20 +321,16 @@ impl SyncEngine {
         })?;
         tracing::info!("Successfully connected to StarRocks");
 
-        // Step 9: 创建 StarRocks 数据库（如果不存在）
-        let create_db_ddl =
-            StarRocksDDLGenerator::generate_create_database_ddl(&request.target_database);
+        // 创建数据库
+        let create_db_ddl = StarRocksDDLGenerator::generate_create_database_ddl(&request.target_database);
         tracing::debug!("Create database DDL: {}", create_db_ddl);
         sr_conn.query_drop(&create_db_ddl).await.map_err(|e| {
             tracing::error!("Failed to create StarRocks database: {}", e);
             crate::utils::error::AppError::Unknown(format!("Failed to create database: {}", e))
         })?;
-        tracing::info!(
-            "Ensured StarRocks database exists: {}",
-            request.target_database
-        );
+        tracing::info!("Ensured StarRocks database exists: {}", request.target_database);
 
-        // Step 10: 处理 StarRocks 表
+        // 处理表（删除或清空）
         if request.options.recreate_sr_table {
             task_repo
                 .add_log(task_id, "info", "Dropping existing StarRocks table...")
@@ -307,13 +361,13 @@ impl SyncEngine {
             })?;
         }
 
-        // Step 11: 在 StarRocks 中创建表
+        // 创建表
         task_repo
             .add_log(task_id, "info", "Creating StarRocks table...")
             .await?;
 
         let sr_table_ddl = StarRocksDDLGenerator::generate_table_ddl(
-            &schema,
+            schema,
             &request.target_database,
             &request.target_table,
         )?;
@@ -328,45 +382,33 @@ impl SyncEngine {
             request.target_table
         );
 
-        // Step 12: 在 RisingWave 中创建 Sink 到 StarRocks
+        Ok(sr_conn)
+    }
+
+    async fn sink_to_starrocks(
+        task_repo: &TaskRepository<'_>, 
+        task_id: i64, 
+        sr_config: &DatabaseConfig, 
+        request: &SyncRequest, 
+        schema: &crate::models::TableSchema,
+        rw_pool: &PgPool,
+    ) -> Result<()> {
+
         task_repo
             .add_log(task_id, "info", "Creating RisingWave sink to StarRocks...")
             .await?;
 
         let sink_ddl = RisingWaveDDLGenerator::generate_sink_ddl(
-            &sr_config,
-            &request.mysql_table,
-            &schema,
-            &request.target_database,
-            &request.target_table,
+            sr_config,
+            &request,
+            schema
         )?;
         tracing::debug!("Sink DDL: {}", sink_ddl);
-        sqlx::query(&sink_ddl)
-            .execute(&rw_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create RisingWave sink: {}", e);
-                e
-            })?;
+        sqlx::query(&sink_ddl).execute(rw_pool).await.map_err(|e| {
+            tracing::error!("Failed to create RisingWave sink: {}", e);
+            e
+        })?;
         tracing::info!("Successfully created RisingWave sink to StarRocks");
-
-        task_repo
-            .add_log(
-                task_id,
-                "info",
-                &format!(
-                    "Successfully synced {}.{} to {}.{}",
-                    request.mysql_database,
-                    request.mysql_table,
-                    request.target_database,
-                    request.target_table
-                ),
-            )
-            .await?;
-
-        // 关闭连接
-        rw_pool.close().await;
-        let _ = sr_conn.disconnect().await;
 
         Ok(())
     }

@@ -1,4 +1,4 @@
-use crate::models::{DatabaseConfig, TableSchema};
+use crate::models::{DatabaseConfig, SyncRequest, TableSchema};
 use crate::utils::error::{AppError, Result};
 use rand::Rng;
 
@@ -113,52 +113,103 @@ impl RisingWaveDDLGenerator {
     /// 生成 Sink 到 StarRocks 的语句
     pub fn generate_sink_ddl(
         sr_config: &DatabaseConfig,
-        mysql_table: &str,
-        schema: &TableSchema,
-        target_database: &str,
-        target_table: &str,
+        request: &SyncRequest,
+        schema: &TableSchema
     ) -> Result<String> {
         // RisingWave table: ods.{mysql_table}
-        let rw_table_name = format!("ods.{}", mysql_table);
+        let rw_schema_name = Self::get_rw_schema_name(&request.mysql_database);
+        let rw_table_name = Self::get_rw_table_name(&request.mysql_database, &request.mysql_table);
+
         // Sink 命名: ods.{table}_to_sr_sink
-        let sink_name = format!("ods.{}_to_sr_sink", mysql_table);
+        let sink_name = format!("{}.{}_to_sr_sink", rw_schema_name, &request.mysql_table);
 
         let sr_database = sr_config
             .database_name
             .as_deref()
-            .unwrap_or(target_database);
+            .unwrap_or(&request.target_database);
 
         // 检查是否有主键
         if schema.primary_keys.is_empty() {
             return Err(AppError::SqlGeneration(
-                format!("Table {} has no primary key, cannot create upsert sink", mysql_table)
+                format!("Table {} has no primary key, cannot create upsert sink", &request.mysql_table)
             ));
         }
 
-        let ddl = format!(
-            r#"CREATE SINK IF NOT EXISTS {} FROM {}
-                WITH (
-                  connector = 'starrocks',
-                  starrocks.host = '{}',
-                  starrocks.mysqlport = '{}',
-                  starrocks.httpport = '8030',
-                  starrocks.user = '{}',
-                  starrocks.password = '{}',
-                  starrocks.database = '{}',
-                  starrocks.table = '{}',
-                  type = 'upsert',
-                  primary_key = '{}'
-                );"#,
-            sink_name,
-            rw_table_name,
-            sr_config.host,
-            sr_config.port,
-            sr_config.username,
-            sr_config.password,
-            sr_database,
-            target_table,
-            schema.primary_keys.join(",")
-        );
+        // 检查是否有需要类型转换的列
+        let mut needs_type_conversion = false;
+        let mut select_columns = Vec::new();
+
+        for col in &schema.columns {
+            let col_type_upper = col.data_type.to_uppercase();
+            let base_type = col_type_upper.split('(').next().unwrap_or(&col_type_upper);
+
+            // MySQL TIMESTAMP/DATETIME -> RisingWave TIMESTAMPTZ -> StarRocks DATETIME
+            // 需要转换为 TIMESTAMP（不带时区）
+            if base_type == "TIMESTAMP" || base_type == "DATETIME" {
+                needs_type_conversion = true;
+                select_columns.push(format!("{}::TIMESTAMP as {}", col.name, col.name));
+            } else {
+                select_columns.push(col.name.clone());
+            }
+        }
+
+        let ddl = if needs_type_conversion {
+            // 使用 SELECT 语句进行类型转换
+            format!(
+                r#"CREATE SINK IF NOT EXISTS {} AS
+                   SELECT
+                   {}
+                   FROM {}
+                   WITH (
+                   connector = 'starrocks',
+                   starrocks.host = '{}',
+                   starrocks.mysqlport = '{}',
+                   starrocks.httpport = '8030',
+                   starrocks.user = '{}',
+                   starrocks.password = '{}',
+                   starrocks.database = '{}',
+                   starrocks.table = '{}',
+                   type = 'upsert',
+                   primary_key = '{}'
+                   );"#,
+                sink_name,
+                select_columns.join(",\n  "),
+                rw_table_name,
+                sr_config.host,
+                sr_config.port,
+                sr_config.username,
+                sr_config.password,
+                sr_database,
+                &request.target_table,
+                schema.primary_keys.join(",")
+            )
+        } else {
+            // 不需要类型转换，直接从表创建 sink
+            format!(
+                r#"CREATE SINK IF NOT EXISTS {} FROM {}
+                   WITH (
+                   connector = 'starrocks',
+                   starrocks.host = '{}',
+                   starrocks.mysqlport = '{}',
+                   starrocks.httpport = '8030',
+                   starrocks.user = '{}',
+                   starrocks.password = '{}',
+                   starrocks.database = '{}',
+                   starrocks.table = '{}',
+                   type = 'upsert',
+                   primary_key = '{}'
+                   );"#,
+                sink_name,
+                rw_table_name,
+                sr_config.host,
+                sr_config.port,
+                sr_config.username,
+                sr_config.password,
+                sr_database,
+                &request.target_table,
+                schema.primary_keys.join(",")
+            )
+        };
 
         Ok(ddl)
     }
