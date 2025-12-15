@@ -31,15 +31,3 @@ pub struct TableSchema {
     pub primary_keys: Vec<String>,
     pub indexes: Vec<Index>,
 }
-
-/// 数据库列表响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseList {
-    pub databases: Vec<String>,
-}
-
-/// 表列表响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TableList {
-    pub tables: Vec<String>,
-}

@@ -3,7 +3,8 @@ use crate::generators::{RisingWaveDDLGenerator, StarRocksDDLGenerator};
 use crate::models::{DatabaseConfig, SyncRequest, SyncTask, TaskStatus};
 use crate::services::{ConnectionService, MetadataService};
 use crate::utils::error::Result;
-use sqlx::{MySqlPool, PgPool, SqlitePool};
+use mysql_async::prelude::*;
+use sqlx::{PgPool, SqlitePool};
 
 /// 同步引擎
 pub struct SyncEngine {
@@ -243,10 +244,22 @@ impl SyncEngine {
             .add_log(task_id, "info", "Connecting to StarRocks...")
             .await?;
 
-        let sr_opts = ConnectionService::build_mysql_options_from_config(&sr_config);
-        let sr_pool = MySqlPool::connect_with(sr_opts).await.map_err(|e| {
+        // 使用 mysql_async 连接 StarRocks（避免 sqlx 的 SET 语句问题）
+        let mut sr_opts_builder = mysql_async::OptsBuilder::default()
+            .ip_or_hostname(&sr_config.host)
+            .tcp_port(sr_config.port)
+            .user(Some(&sr_config.username))
+            .pass(Some(&sr_config.password))
+            .prefer_socket(false); // 禁用 socket，只使用 TCP
+
+        if let Some(db) = &sr_config.database_name {
+            sr_opts_builder = sr_opts_builder.db_name(Some(db));
+        }
+
+        let sr_opts = mysql_async::Opts::from(sr_opts_builder);
+        let mut sr_conn = mysql_async::Conn::new(sr_opts).await.map_err(|e| {
             tracing::error!("Failed to connect to StarRocks: {}", e);
-            e
+            crate::utils::error::AppError::Connection(format!("StarRocks connection failed: {}", e))
         })?;
         tracing::info!("Successfully connected to StarRocks");
 
@@ -254,13 +267,10 @@ impl SyncEngine {
         let create_db_ddl =
             StarRocksDDLGenerator::generate_create_database_ddl(&request.target_database);
         tracing::debug!("Create database DDL: {}", create_db_ddl);
-        sqlx::query(&create_db_ddl)
-            .execute(&sr_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create StarRocks database: {}", e);
-                e
-            })?;
+        sr_conn.query_drop(&create_db_ddl).await.map_err(|e| {
+            tracing::error!("Failed to create StarRocks database: {}", e);
+            crate::utils::error::AppError::Unknown(format!("Failed to create database: {}", e))
+        })?;
         tracing::info!(
             "Ensured StarRocks database exists: {}",
             request.target_database
@@ -276,7 +286,11 @@ impl SyncEngine {
                 &request.target_database,
                 &request.target_table,
             );
-            sqlx::query(&drop_table_ddl).execute(&sr_pool).await?;
+            tracing::debug!("Drop table DDL: {}", drop_table_ddl);
+            sr_conn.query_drop(&drop_table_ddl).await.map_err(|e| {
+                tracing::error!("Failed to drop StarRocks table: {}", e);
+                crate::utils::error::AppError::Unknown(format!("Failed to drop table: {}", e))
+            })?;
         } else if request.options.truncate_sr_table {
             task_repo
                 .add_log(task_id, "info", "Truncating StarRocks table...")
@@ -286,7 +300,11 @@ impl SyncEngine {
                 &request.target_database,
                 &request.target_table,
             );
-            sqlx::query(&truncate_ddl).execute(&sr_pool).await?;
+            tracing::debug!("Truncate table DDL: {}", truncate_ddl);
+            sr_conn.query_drop(&truncate_ddl).await.map_err(|e| {
+                tracing::error!("Failed to truncate StarRocks table: {}", e);
+                crate::utils::error::AppError::Unknown(format!("Failed to truncate table: {}", e))
+            })?;
         }
 
         // Step 11: 在 StarRocks 中创建表
@@ -300,13 +318,10 @@ impl SyncEngine {
             &request.target_table,
         )?;
         tracing::debug!("StarRocks Table DDL: {}", sr_table_ddl);
-        sqlx::query(&sr_table_ddl)
-            .execute(&sr_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create StarRocks table: {}", e);
-                e
-            })?;
+        sr_conn.query_drop(&sr_table_ddl).await.map_err(|e| {
+            tracing::error!("Failed to create StarRocks table: {}", e);
+            crate::utils::error::AppError::Unknown(format!("Failed to create table: {}", e))
+        })?;
         tracing::info!(
             "Successfully created StarRocks table: {}.{}",
             request.target_database,
@@ -349,8 +364,9 @@ impl SyncEngine {
             )
             .await?;
 
+        // 关闭连接
         rw_pool.close().await;
-        sr_pool.close().await;
+        let _ = sr_conn.disconnect().await;
 
         Ok(())
     }

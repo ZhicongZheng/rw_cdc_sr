@@ -7,8 +7,13 @@ pub struct RisingWaveDDLGenerator;
 
 impl RisingWaveDDLGenerator {
     /// 生成创建 ods schema 的语句
-    pub fn generate_create_schema_ddl(database_name: &String) -> String {
-        format!("CREATE SCHEMA IF NOT EXISTS ods_{};", database_name)
+    pub fn generate_create_schema_ddl(mysql_database: &String) -> String {
+        let schema_name = Self::get_rw_schema_name(mysql_database);
+        format!("CREATE SCHEMA IF NOT EXISTS {};", schema_name)
+    }
+
+    pub fn get_rw_schema_name(mysql_database: &str) -> String {
+        format!("ods_{}", mysql_database)
     }
 
     /// 生成创建 SECRET 的语句（用于存储 MySQL 密码）
@@ -16,15 +21,7 @@ impl RisingWaveDDLGenerator {
         mysql_config: &DatabaseConfig,
     ) -> Result<String> {
         // Secret 名称: {config_name}_pwd (移除特殊字符，转为小写)
-        let secret_name = format!(
-            "{}_pwd",
-            mysql_config.name
-                .to_lowercase()
-                .replace(' ', "_")
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '_')
-                .collect::<String>()
-        );
+        let secret_name = Self::get_secret_name(mysql_config);
 
         let ddl = format!(
             r#"CREATE SECRET IF NOT EXISTS {} WITH ( backend = 'meta' ) AS '{}';"#,
@@ -35,7 +32,7 @@ impl RisingWaveDDLGenerator {
         Ok(ddl)
     }
 
-    /// 获取 secret 名称
+    /// 获取 secret 名称 (移除特殊字符，转为小写)
     pub fn get_secret_name(mysql_config: &DatabaseConfig) -> String {
         format!(
             "{}_pwd",
@@ -58,7 +55,7 @@ impl RisingWaveDDLGenerator {
         let server_id: u32 = rand::thread_rng().gen_range(5000..9999);
 
         // Source 命名: ods.ods_{mysql_database}
-        let source_name = format!("ods_{}_source", mysql_database);
+        let source_name = Self::get_source_name(mysql_database);
         let secret_name = Self::get_secret_name(mysql_config);
 
         let ddl = format!(
@@ -84,15 +81,18 @@ impl RisingWaveDDLGenerator {
         Ok(ddl)
     }
 
+    pub fn get_source_name(mysql_database: &str) -> String {
+        format!("ods_{}_source", mysql_database)
+    }
+
     /// 生成 Table 创建语句（从 CDC Source，使用简化语法）
     /// 使用 (*) 自动推断所有列，支持 auto.schema.change
     pub fn generate_table_ddl(
         mysql_database: &str,
         mysql_table: &str,
     ) -> Result<String> {
-        // Table 在 ods schema 下，直接使用表名
-        let table_name = format!("ods_{}.{}", mysql_database, mysql_table);
-        let source_name = format!("ods_{}_source", mysql_database);
+        let table_name = Self::get_rw_table_name(mysql_database, mysql_table);
+        let source_name = Self::get_source_name(mysql_database);
 
         // 使用 (*) 语法自动推断所有列
         let ddl = format!(
@@ -104,6 +104,10 @@ impl RisingWaveDDLGenerator {
         );
 
         Ok(ddl)
+    }
+
+    pub fn get_rw_table_name(mysql_database: &str, mysql_table: &str) -> String {
+        format!("{}.{}", Self::get_rw_schema_name(mysql_database), mysql_table)
     }
 
     /// 生成 Sink 到 StarRocks 的语句
@@ -182,6 +186,7 @@ impl RisingWaveDDLGenerator {
         let secret_name = Self::get_secret_name(mysql_config);
         format!("DROP SECRET IF EXISTS {};", secret_name)
     }
+
 }
 
 #[cfg(test)]

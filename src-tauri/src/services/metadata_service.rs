@@ -1,7 +1,6 @@
-use crate::models::{Column, DatabaseConfig, Index, TableSchema};
+use crate::models::{Column, DatabaseConfig, TableSchema};
 use crate::services::ConnectionService;
 use crate::utils::error::Result;
-use rand::seq::index;
 use sqlx::{MySqlPool, Row};
 
 /// 元数据服务
@@ -208,37 +207,5 @@ impl MetadataService {
         .await?;
 
         Ok(primary_keys)
-    }
-
-    /// 获取索引信息
-    async fn get_indexes(pool: &MySqlPool, database: &str, table: &str) -> Result<Vec<Index>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT
-                INDEX_NAME,
-                COLUMN_NAME,
-                NON_UNIQUE,
-                SEQ_IN_INDEX
-            FROM INFORMATION_SCHEMA.STATISTICS
-            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME != 'PRIMARY'
-            ORDER BY INDEX_NAME, SEQ_IN_INDEX
-            "#,
-        )
-        .bind(database)
-        .bind(table)
-        .fetch_all(pool)
-        .await?;
-
-        let mut indexes = Vec::new();
-        for row in rows {
-            indexes.push(Index {
-                index_name: row.try_get("INDEX_NAME")?,
-                column_name: row.try_get("COLUMN_NAME")?,
-                is_unique: row.try_get::<i32, _>("NON_UNIQUE")? == 0,
-                seq_in_index: row.try_get("SEQ_IN_INDEX")?,
-            });
-        }
-
-        Ok(indexes)
     }
 }

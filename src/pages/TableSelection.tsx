@@ -5,23 +5,17 @@ import {
   Select,
   Button,
   Table,
-  Checkbox,
-  Form,
-  Input,
+  Checkbox, Input,
   message,
-  Space,
-  Tag,
-  Alert,
+  Space, Alert
 } from "antd";
 import { SyncOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type {
-  DatabaseConfig,
-  TableSchema,
-  SyncRequest,
+  DatabaseConfig, SyncRequest,
   BatchSyncRequest,
   SyncOptions,
-  TableSyncInfo,
+  TableSyncInfo
 } from "../types";
 import * as api from "../services/api";
 

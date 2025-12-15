@@ -62,15 +62,15 @@ impl StarRocksDDLGenerator {
 
         let ddl = format!(
             r#"CREATE TABLE IF NOT EXISTS `{}`.`{}` (
-{}
-) ENGINE=OLAP
-{}
-DISTRIBUTED BY HASH({}) BUCKETS 10
-PROPERTIES (
-  "replication_num" = "1",
-  "in_memory" = "false",
-  "storage_format" = "DEFAULT"
-);"#,
+               {}
+               ) ENGINE=OLAP
+               {}
+               DISTRIBUTED BY HASH({}) BUCKETS 10
+               PROPERTIES (
+                   "replication_num" = "1",
+                   "in_memory" = "false",
+                   "storage_format" = "DEFAULT"
+               );"#,
             target_database,
             target_table,
             column_defs.join(",\n"),
