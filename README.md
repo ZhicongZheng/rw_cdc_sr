@@ -1,176 +1,223 @@
-# RisingWave CDC to StarRocks 同步工具
+# RW CDC SR - MySQL to StarRocks CDC Sync via RisingWave
 
-一个基于 Tauri + Rust 的数据同步工具，通过 RisingWave 实现 MySQL 到 StarRocks 的一键数据同步。
+一个用于将 MySQL 数据通过 RisingWave CDC 实时同步到 StarRocks 的 Web 应用。
 
-## 项目概述
-
-一个给开发者使用的小工具，核心功能是可以通过 RisingWave, 一键同步 MySQL 的数据到 StarRocks。
-
-## 项目状态
-
-**🎉 项目已完成！前后端全栈实现 100%**
-
-### ✅ 后端功能（Rust + Tauri）
-- ✅ 完整的数据模型和类型系统
-- ✅ MySQL/RisingWave/StarRocks 连接服务
-- ✅ 表结构元数据读取和分析
-- ✅ 智能 SQL DDL 生成器
-- ✅ 异步同步引擎和任务管理
-- ✅ SQLite 配置和日志持久化
-- ✅ AES-256 密码加密存储
-- ✅ 16 个 Tauri Command API 接口
-
-### ✅ 前端功能（React + TypeScript + Ant Design）
-- ✅ 现代化的 UI 界面设计
-- ✅ 三个核心页面（连接配置、数据同步、任务管理）
-- ✅ 完整的 API 集成
-- ✅ 实时任务状态和进度显示
-- ✅ 友好的用户交互体验
-
-## 快速开始
-
-### 环境要求
-- Rust 1.75+ (支持 2024 edition)
-- Node.js 18+
-- npm/pnpm/yarn
-
-### 安装依赖
-
-```bash
-# 安装前端依赖
-npm install
-```
-
-**注意**: Rust 依赖会在首次运行 Tauri 时自动安装
-
-### 开发模式
-
-```bash
-# 启动 Tauri 开发服务器（会同时启动前后端）
-npm run tauri:dev
-```
-
-### 构建应用
-
-```bash
-# 构建 Tauri 应用（会自动构建前端）
-npm run tauri:build
-```
-
-构建产物位置：
-- **macOS**: `src-tauri/target/release/bundle/macos/`
-- **Windows**: `src-tauri/target/release/bundle/msi/`
-- **Linux**: `src-tauri/target/release/bundle/appimage/`
-
-## 功能特性
-
-### 1️⃣ 连接管理
-- 支持 MySQL、RisingWave、StarRocks 连接配置
-- 连接测试功能
-- 密码加密存储
-- 连接配置持久化
-
-### 2️⃣ 数据同步
-- 可视化表选择
-- 支持单表/批量同步
-- 自定义目标数据库和表名
-- 灵活的同步选项：
-  - 重建 RisingWave Source
-  - 重建 StarRocks 表
-  - 清空数据
-
-### 3️⃣ 任务管理
-- 实时任务状态查看
-- 详细的执行日志
-- 任务进度跟踪
-- 任务历史记录
-
-## 技术栈
-
-### 后端
-- **Rust 2024** + Tauri 2.0
-- **SQLx 0.8** (MySQL, PostgreSQL, SQLite)
-- **Tokio** (异步运行时)
-- **AES-GCM** (密码加密)
-
-### 前端
-- **React 18** + TypeScript 5
-- **Ant Design 5** (UI 组件库)
-- **Vite** (构建工具)
-- **React Router** (路由)
-
-## 项目结构
+## 🏗️ 项目结构
 
 ```
 rw_cdc_sr/
-├── 📄 配置文件
-│   ├── package.json            # 前端依赖
-│   ├── tsconfig.json           # TypeScript 配置
-│   ├── vite.config.ts          # Vite 配置
-│   └── index.html              # HTML 入口
+├── frontend/              # React + TypeScript 前端
+│   ├── src/
+│   │   ├── services/      # API 调用层
+│   │   ├── pages/         # 页面组件
+│   │   ├── components/    # 通用组件
+│   │   └── types/         # TypeScript 类型定义
+│   ├── package.json
+│   └── vite.config.ts
 │
-├── 📚 文档
-│   ├── README.md               # 项目说明
-│   ├── DESIGN.md               # 详细设计文档
-│   └── USER_GUIDE.md           # 使用指南
+├── backend/               # Rust + Axum 后端
+│   ├── src/
+│   │   ├── api/           # HTTP API handlers
+│   │   ├── db/            # MySQL 数据层
+│   │   ├── services/      # 业务逻辑
+│   │   ├── generators/    # DDL 生成器
+│   │   ├── models/        # 数据模型
+│   │   └── main.rs        # 主入口（嵌入前端静态文件）
+│   └── Cargo.toml
 │
-├── ⚛️ 前端代码 (src/)
-│   ├── main.tsx                # 前端入口
-│   ├── types/                  # TypeScript 类型
-│   ├── services/               # API 调用服务
-│   │   └── api.ts
-│   ├── components/             # React 组件
-│   │   └── MainLayout.tsx
-│   ├── pages/                  # 页面组件
-│   │   ├── ConnectionConfig.tsx
-│   │   ├── TableSelection.tsx
-│   │   └── TaskManagement.tsx
-│   └── styles/                 # 样式文件
-│       └── global.css
+├── k8s/                   # Kubernetes 部署清单
+│   ├── deployment.yaml
+│   └── README.md
 │
-└── 🦀 后端代码 (src-tauri/)
-    ├── Cargo.toml              # Rust 依赖
-    ├── build.rs                # 构建脚本
-    ├── tauri.conf.json         # Tauri 配置
-    └── src/                    # Rust 源码
-        ├── main.rs             # 后端入口
-        ├── lib.rs              # 库入口
-        ├── models/             # 数据模型 (3 文件)
-        ├── utils/              # 工具函数 (4 文件)
-        ├── db/                 # 数据库层 (3 文件)
-        ├── services/           # 业务逻辑 (4 文件)
-        ├── generators/         # SQL 生成器 (3 文件)
-        └── commands/           # Tauri 命令 (5 文件)
+├── Dockerfile             # 多阶段构建配置
+├── docker-compose.yml     # 本地开发环境
+└── README.md              # 本文档
 ```
 
-## 文档
+## ✨ 核心特性
 
-- 📖 [设计文档](./DESIGN.md) - 详细的架构和实现设计
-- 📘 [使用指南](./USER_GUIDE.md) - 完整的使用说明
+- **单二进制部署**：前端静态文件嵌入到 Rust 二进制中
+- **完整 Web 应用**：前后端一体化，无需分离部署
+- **MySQL 8 元数据存储**：支持集群部署，利用现有 K8s MySQL 实例
+- **K8s 原生**：直接使用 Service DNS 访问数据库服务
+- **RESTful API**：标准 HTTP API，易于集成
 
-## 核心功能演示
+## 🚀 快速开始
 
-### 连接配置页面
-- 添加和管理数据库连接
-- 测试连接可用性
-- 加密存储敏感信息
+### 本地开发
 
-### 数据同步页面
-- 三步式向导流程
-- 可视化表选择
-- 灵活的同步选项配置
+#### 1. 前端开发
 
-### 任务管理页面
-- 任务列表和状态筛选
-- 详细的任务执行日志
-- 实时进度显示
+```bash
+cd frontend
+npm install
+npm run dev  # 启动 Vite 开发服务器（http://localhost:5173）
+```
 
-## 许可证
+#### 2. 后端开发
+
+```bash
+# 启动 MySQL 8
+docker run -d \
+  --name mysql \
+  -e MYSQL_ROOT_PASSWORD=password \
+  -e MYSQL_DATABASE=rw_cdc_sr \
+  -e MYSQL_USER=rw_user \
+  -e MYSQL_PASSWORD=password \
+  -p 3306:3306 \
+  mysql:8.0
+
+# 运行后端（需要先构建前端）
+cd backend
+export DATABASE_URL="mysql://rw_user:password@localhost:3306/rw_cdc_sr"
+cargo run
+```
+
+访问 http://localhost:3000
+
+### 使用 Docker Compose
+
+```bash
+# 启动所有服务（MySQL 8 + 应用）
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f app
+
+# 停止服务
+docker-compose down
+```
+
+## 📦 构建
+
+### 构建 Docker 镜像
+
+```bash
+# 构建镜像（自动构建前后端并打包为单个二进制）
+docker build -t rw-cdc-sr:latest .
+
+# 运行容器
+docker run -d \
+  --name rw-cdc-sr \
+  -p 3000:3000 \
+  -e DATABASE_URL="mysql://user:password@host:3306/db" \
+  rw-cdc-sr:latest
+```
+
+### 本地构建二进制
+
+```bash
+# 1. 构建前端
+cd frontend
+npm install
+npm run build
+
+# 2. 构建后端（会自动嵌入 frontend/dist）
+cd ../backend
+cargo build --release
+
+# 生成的二进制文件：
+# backend/target/release/rw_cdc_sr
+```
+
+### 运行二进制
+
+```bash
+export DATABASE_URL="mysql://rw_user:password@localhost:3306/rw_cdc_sr"
+export PORT=3000
+export RUST_LOG=info
+
+./backend/target/release/rw_cdc_sr
+```
+
+## ☸️ Kubernetes 部署
+
+详见 [k8s/README.md](k8s/README.md)
+
+```bash
+# 部署应用
+kubectl apply -f k8s/deployment.yaml
+
+# 访问应用
+kubectl port-forward svc/rw-cdc-sr 3000:80
+```
+
+## 🔧 环境变量
+
+### 必需
+
+- `DATABASE_URL`: MySQL 连接字符串（用于元数据存储）
+  ```
+  mysql://username:password@hostname:port/database
+  ```
+
+### 可选
+
+- `PORT`: HTTP 服务器端口（默认：3000）
+- `RUST_LOG`: 日志级别（默认：info）
+  ```
+  RUST_LOG=debug,rw_cdc_sr=debug
+  ```
+
+## 📡 API 端点
+
+所有 API 在 `/api` 路径下：
+
+### 健康检查
+- `GET /api/health` - 健康检查
+
+### 连接管理
+- `POST /api/connections/test/mysql` - 测试 MySQL 连接
+- `POST /api/connections/test/risingwave` - 测试 RisingWave 连接
+- `POST /api/connections/test/starrocks` - 测试 StarRocks 连接
+- `GET /api/connections` - 获取所有连接
+- `POST /api/connections` - 创建连接
+- `PUT /api/connections/:id` - 更新连接
+- `DELETE /api/connections/:id` - 删除连接
+
+### 元数据
+- `POST /api/metadata/databases` - 列出数据库
+- `POST /api/metadata/tables` - 列出表
+- `POST /api/metadata/schema` - 获取表结构
+
+### 同步任务
+- `POST /api/sync/single` - 同步单个表
+- `POST /api/sync/multiple` - 同步多个表
+- `GET /api/sync/progress/:id` - 获取同步进度
+- `POST /api/sync/retry/:id` - 重试任务
+
+### 任务管理
+- `GET /api/tasks/history` - 任务历史
+- `GET /api/tasks/:id` - 任务详情
+- `GET /api/tasks/:id/logs` - 任务日志
+- `POST /api/tasks/:id/cancel` - 取消任务
+
+## 📚 技术栈
+
+**前端**:
+- React 18 + TypeScript
+- Ant Design 5
+- Vite 5
+- React Router 6
+
+**后端**:
+- Rust 1.75+
+- Axum 0.7 (Web 框架)
+- SQLx 0.8 (MySQL 元数据存储 + PostgreSQL 连接 RisingWave)
+- mysql_async 0.34 (StarRocks 兼容性)
+- rust-embed (静态文件嵌入)
+
+**部署**:
+- Docker
+- Kubernetes
+- MySQL 8 (元数据存储)
+
+## 📖 文档
+
+- [前端 API 迁移指南](FRONTEND_MIGRATION.md)
+- [完整迁移总结](MIGRATION_SUMMARY.md)
+- [K8s 部署指南](k8s/README.md)
+
+## 📄 License
 
 MIT
-
----
-
-**开发完成时间**: 2025-12-12
-**作者**: Claude Code
-**技术栈**: Rust + Tauri + React + TypeScript + Ant Design
