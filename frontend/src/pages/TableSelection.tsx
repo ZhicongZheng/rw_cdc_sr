@@ -41,6 +41,7 @@ const TableSelection: React.FC = () => {
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectedDatabase, setSelectedDatabase] = useState<string>();
   const [tables, setTables] = useState<string[]>([]);
+  const [tableSearchText, setTableSearchText] = useState<string>("");
   const [selectedTables, setSelectedTables] = useState<SelectedTable[]>([]);
 
   const [syncOptions, setSyncOptions] = useState<SyncOptions>({
@@ -84,6 +85,7 @@ const TableSelection: React.FC = () => {
     try {
       const tbls = await api.listMysqlTables(configId, database);
       setTables(tbls);
+      setTableSearchText(""); // 清空搜索框
     } catch (error) {
       message.error("加载表列表失败: " + error);
     }
@@ -337,9 +339,19 @@ const TableSelection: React.FC = () => {
 
             {selectedDatabase && (
               <Card title="选择表" size="small">
+                <Input.Search
+                  placeholder="搜索表名..."
+                  value={tableSearchText}
+                  onChange={(e) => setTableSearchText(e.target.value)}
+                  onSearch={(value) => setTableSearchText(value)}
+                  allowClear
+                  style={{ marginBottom: 16 }}
+                />
                 <Table
                   columns={tableColumns}
-                  dataSource={tables}
+                  dataSource={tables.filter((table) =>
+                    table.toLowerCase().includes(tableSearchText.toLowerCase())
+                  )}
                   rowKey={(table) => table}
                   pagination={{ pageSize: 10 }}
                   size="small"
