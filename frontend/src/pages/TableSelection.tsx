@@ -38,6 +38,8 @@ const TableSelection: React.FC = () => {
   const [selectedRwId, setSelectedRwId] = useState<number>();
   const [selectedSrId, setSelectedSrId] = useState<number>();
 
+  const [batchTargetDatabase, setBatchTargetDatabase] = useState<string>("");
+
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectedDatabase, setSelectedDatabase] = useState<string>();
   const [tables, setTables] = useState<string[]>([]);
@@ -60,9 +62,18 @@ const TableSelection: React.FC = () => {
   const loadConnections = async () => {
     try {
       const data = await api.getAllConnections();
-      setMysqlConnections(data.filter((c) => c.db_type === "mysql"));
-      setRwConnections(data.filter((c) => c.db_type === "risingwave"));
-      setSrConnections(data.filter((c) => c.db_type === "starrocks"));
+      const mysqlConns = data.filter((c) => c.db_type === "mysql");
+      const rwConns = data.filter((c) => c.db_type === "risingwave");
+      const srConns = data.filter((c) => c.db_type === "starrocks");
+
+      setMysqlConnections(mysqlConns);
+      setRwConnections(rwConns);
+      setSrConnections(srConns);
+
+      // 如果有 StarRocks 连接，自动设置第一个连接的数据库名作为批量目标数据库默认值
+      if (srConns.length > 0 && srConns[0].database_name) {
+        setBatchTargetDatabase(srConns[0].database_name);
+      }
     } catch (error) {
       message.error("加载连接配置失败: " + error);
     }
@@ -199,7 +210,7 @@ const TableSelection: React.FC = () => {
                   {
                     database: selectedDatabase!,
                     table,
-                    targetDatabase: selectedDatabase!,
+                    targetDatabase: batchTargetDatabase || selectedDatabase!,
                     targetTable: table,
                   },
                 ]);
@@ -366,6 +377,34 @@ const TableSelection: React.FC = () => {
                   type="info"
                   style={{ marginBottom: 16 }}
                 />
+                <div style={{ marginBottom: 16 }}>
+                  <Space direction="vertical" style={{ width: "100%" }}>
+                    <div>
+                      <span style={{ marginRight: 8 }}>批量设置 StarRocks 目标数据库：</span>
+                      <Input
+                        style={{ width: 300 }}
+                        placeholder="输入数据库名批量应用到所有表"
+                        value={batchTargetDatabase}
+                        onChange={(e) => {
+                          const newDb = e.target.value;
+                          setBatchTargetDatabase(newDb);
+                          if (newDb) {
+                            // 批量更新所有已选表的目标数据库
+                            setSelectedTables((tables) =>
+                              tables.map((t) => ({
+                                ...t,
+                                targetDatabase: newDb,
+                              }))
+                            );
+                          }
+                        }}
+                      />
+                      <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}>
+                        （修改此处将统一应用到下方所有表）
+                      </span>
+                    </div>
+                  </Space>
+                </div>
                 <Table
                   columns={selectedTableColumns}
                   dataSource={selectedTables}
@@ -407,7 +446,11 @@ const TableSelection: React.FC = () => {
                 style={{ width: "100%" }}
                 placeholder="请选择 StarRocks 连接"
                 value={selectedSrId}
-                onChange={setSelectedSrId}
+                onChange={(value) => {
+                  setSelectedSrId(value);
+                  // 只在还没有设置批量目标数据库时，才从连接配置中读取默认值
+                  // 不要覆盖用户在步骤1已经设置好的值
+                }}
               >
                 {srConnections.map((conn) => (
                   <Select.Option key={conn.id} value={conn.id}>

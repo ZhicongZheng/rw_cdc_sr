@@ -17,9 +17,7 @@ impl RisingWaveDDLGenerator {
     }
 
     /// 生成创建 SECRET 的语句（用于存储 MySQL 密码）
-    pub fn generate_secret_ddl(
-        mysql_config: &DatabaseConfig,
-    ) -> Result<String> {
+    pub fn generate_secret_ddl(mysql_config: &DatabaseConfig) -> Result<String> {
         // Secret 名称: {config_name}_pwd (移除特殊字符，转为小写)
         let secret_name = Self::get_secret_name(mysql_config);
 
@@ -36,7 +34,8 @@ impl RisingWaveDDLGenerator {
     pub fn get_secret_name(mysql_config: &DatabaseConfig) -> String {
         format!(
             "{}_pwd",
-            mysql_config.name
+            mysql_config
+                .name
                 .to_lowercase()
                 .replace(' ', "_")
                 .chars()
@@ -87,34 +86,32 @@ impl RisingWaveDDLGenerator {
 
     /// 生成 Table 创建语句（从 CDC Source，使用简化语法）
     /// 使用 (*) 自动推断所有列，支持 auto.schema.change
-    pub fn generate_table_ddl(
-        mysql_database: &str,
-        mysql_table: &str,
-    ) -> Result<String> {
+    pub fn generate_table_ddl(mysql_database: &str, mysql_table: &str) -> Result<String> {
         let table_name = Self::get_rw_table_name(mysql_database, mysql_table);
         let source_name = Self::get_source_name(mysql_database);
 
         // 使用 (*) 语法自动推断所有列
         let ddl = format!(
             r#"CREATE TABLE IF NOT EXISTS {} (*) FROM {} TABLE '{}.{}';"#,
-            table_name,
-            source_name,
-            mysql_database,
-            mysql_table
+            table_name, source_name, mysql_database, mysql_table
         );
 
         Ok(ddl)
     }
 
     pub fn get_rw_table_name(mysql_database: &str, mysql_table: &str) -> String {
-        format!("{}.{}", Self::get_rw_schema_name(mysql_database), mysql_table)
+        format!(
+            "{}.{}",
+            Self::get_rw_schema_name(mysql_database),
+            mysql_table
+        )
     }
 
     /// 生成 Sink 到 StarRocks 的语句
     pub fn generate_sink_ddl(
         sr_config: &DatabaseConfig,
         request: &SyncRequest,
-        schema: &TableSchema
+        schema: &TableSchema,
     ) -> Result<String> {
         // RisingWave table: ods.{mysql_table}
         let rw_schema_name = Self::get_rw_schema_name(&request.mysql_database);
@@ -130,9 +127,10 @@ impl RisingWaveDDLGenerator {
 
         // 检查是否有主键
         if schema.primary_keys.is_empty() {
-            return Err(AppError::SqlGeneration(
-                format!("Table {} has no primary key, cannot create upsert sink", &request.mysql_table)
-            ));
+            return Err(AppError::SqlGeneration(format!(
+                "Table {} has no primary key, cannot create upsert sink",
+                &request.mysql_table
+            )));
         }
 
         // 检查是否有需要类型转换的列
@@ -179,7 +177,7 @@ impl RisingWaveDDLGenerator {
                 sr_config.port,
                 sr_config.username,
                 sr_config.password,
-                sr_database,
+                &request.target_database,
                 &request.target_table,
                 schema.primary_keys.join(",")
             )
@@ -205,7 +203,7 @@ impl RisingWaveDDLGenerator {
                 sr_config.port,
                 sr_config.username,
                 sr_config.password,
-                sr_database,
+                &request.target_database,
                 &request.target_table,
                 schema.primary_keys.join(",")
             )
@@ -237,7 +235,6 @@ impl RisingWaveDDLGenerator {
         let secret_name = Self::get_secret_name(mysql_config);
         format!("DROP SECRET IF EXISTS {};", secret_name)
     }
-
 }
 
 #[cfg(test)]

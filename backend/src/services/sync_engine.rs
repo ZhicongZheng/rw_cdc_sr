@@ -170,6 +170,7 @@ impl SyncEngine {
         task_repo
             .add_log(task_id, "info", "Fetching MySQL table schema...")
             .await?;
+        tracing::info!("Fetching MySQL table schema from db: {}, table {}", &request.mysql_database, &request.mysql_table);
 
         let schema = MetadataService::get_mysql_table_schema(
             mysql_config,
@@ -210,6 +211,7 @@ impl SyncEngine {
         task_repo
             .add_log(task_id, "info", "Connecting to RisingWave...")
             .await?;
+        tracing::info!("Connecting to RisingWave...");
 
         let rw_opts = ConnectionService::build_postgres_options_from_config(rw_config);
         let rw_pool = PgPool::connect_with(rw_opts).await.map_err(|e| {
@@ -302,6 +304,7 @@ impl SyncEngine {
         task_repo
             .add_log(task_id, "info", "Connecting to StarRocks...")
             .await?;
+        tracing::info!("Connecting to StarRocks...");
 
         let mut sr_opts_builder = mysql_async::OptsBuilder::default()
             .ip_or_hostname(&sr_config.host)
