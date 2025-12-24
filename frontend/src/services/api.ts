@@ -8,7 +8,6 @@ import type {
   DatabaseConfig,
   TableSchema,
   SyncRequest,
-  BatchSyncRequest,
   SyncProgress,
   SyncTask,
   TaskHistoryQuery,
@@ -159,7 +158,7 @@ export const syncSingleTable = async (request: SyncRequest): Promise<number> => 
 };
 
 export const syncMultipleTables = async (
-  request: BatchSyncRequest
+  request: SyncRequest[]
 ): Promise<number[]> => {
   const result = await apiFetch<{ task_ids: number[] }>('/api/sync/multiple', {
     method: 'POST',

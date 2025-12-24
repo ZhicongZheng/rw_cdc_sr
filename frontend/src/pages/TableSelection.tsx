@@ -13,9 +13,7 @@ import { SyncOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type {
   DatabaseConfig, SyncRequest,
-  BatchSyncRequest,
   SyncOptions,
-  TableSyncInfo
 } from "../types";
 import * as api from "../services/api";
 
@@ -147,21 +145,18 @@ const TableSelection: React.FC = () => {
         message.success(`同步任务已创建！任务 ID: ${taskId}`);
       } else {
         // 批量同步
-        const tableInfos: TableSyncInfo[] = selectedTables.map((t) => ({
-          mysql_database: t.database,
-          mysql_table: t.table,
-          target_database: t.targetDatabase,
-          target_table: t.targetTable,
-        }));
-
-        const request: BatchSyncRequest = {
-          mysql_config_id: selectedMysqlId,
-          rw_config_id: selectedRwId,
-          sr_config_id: selectedSrId,
-          tables: tableInfos,
-          options: syncOptions,
-        };
-
+        const request =  selectedTables.map((table) => {
+          return {
+            mysql_config_id: selectedMysqlId,
+            rw_config_id: selectedRwId,
+            sr_config_id: selectedSrId,
+            mysql_database: table.database,
+            mysql_table: table.table,
+            target_database: table.targetDatabase,
+            target_table: table.targetTable,
+            options: syncOptions,
+          }
+        });
         const taskIds = await api.syncMultipleTables(request);
         message.success(`批量同步任务已创建！共 ${taskIds.length} 个任务`);
       }
