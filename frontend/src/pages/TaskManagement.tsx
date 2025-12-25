@@ -36,16 +36,23 @@ const TaskManagement: React.FC = () => {
   const [taskLogs, setTaskLogs] = useState<TaskLog[]>([]);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
 
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+
   // 加载任务列表
   const loadTasks = async () => {
     setLoading(true);
     try {
-      const data = await api.getTaskHistory({
+      const offset = (currentPage - 1) * pageSize;
+      const response = await api.getTaskHistory({
         status: statusFilter,
-        limit: 100,
-        offset: 0,
+        limit: pageSize,
+        offset,
       });
-      setTasks(data);
+      setTasks(response.tasks);
+      setTotal(response.total);
     } catch (error) {
       message.error('加载任务列表失败: ' + error);
     } finally {
@@ -58,7 +65,7 @@ const TaskManagement: React.FC = () => {
     // 每5秒自动刷新
     const interval = setInterval(loadTasks, 5000);
     return () => clearInterval(interval);
-  }, [statusFilter]);
+  }, [statusFilter, currentPage, pageSize]);
 
   // 查看任务详情
   const handleViewDetail = async (task: SyncTask) => {
@@ -246,7 +253,10 @@ const TaskManagement: React.FC = () => {
               placeholder="任务状态"
               allowClear
               value={statusFilter}
-              onChange={setStatusFilter}
+              onChange={(value) => {
+                setStatusFilter(value);
+                setCurrentPage(1); // 改变过滤器时重置到第一页
+              }}
             >
               <Select.Option value="pending">等待中</Select.Option>
               <Select.Option value="running">执行中</Select.Option>
@@ -265,7 +275,21 @@ const TaskManagement: React.FC = () => {
           dataSource={tasks}
           rowKey="id"
           loading={loading}
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            current: currentPage,
+            pageSize: pageSize,
+            total: total,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条记录`,
+            pageSizeOptions: ['10', '20', '50', '100'],
+            onChange: (page, size) => {
+              setCurrentPage(page);
+              if (size !== pageSize) {
+                setPageSize(size);
+                setCurrentPage(1); // 改变页大小时重置到第一页
+              }
+            },
+          }}
         />
       </Card>
 

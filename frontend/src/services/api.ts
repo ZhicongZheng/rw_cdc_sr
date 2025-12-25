@@ -12,6 +12,7 @@ import type {
   SyncTask,
   TaskHistoryQuery,
   TaskLog,
+  PaginatedTasksResponse,
 } from '../types';
 
 // API 基础 URL（生产环境为空，开发环境通过 Vite 代理）
@@ -183,7 +184,7 @@ export const retrySyncTask = async (taskId: number): Promise<number> => {
 
 export const getTaskHistory = async (
   query: TaskHistoryQuery
-): Promise<SyncTask[]> => {
+): Promise<PaginatedTasksResponse> => {
   const params = new URLSearchParams();
 
   if (query.status) params.append('status', query.status);
@@ -191,7 +192,7 @@ export const getTaskHistory = async (
   if (query.offset) params.append('offset', query.offset.toString());
 
   const queryString = params.toString();
-  return apiFetch<SyncTask[]>(
+  return apiFetch<PaginatedTasksResponse>(
     `/api/tasks/history${queryString ? `?${queryString}` : ''}`
   );
 };

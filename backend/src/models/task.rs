@@ -144,3 +144,19 @@ pub struct TaskHistoryQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
+
+
+#[derive(Deserialize)]
+pub struct HistoryQuery {
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct PaginatedTasksResponse {
+    pub tasks: Vec<SyncTask>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}

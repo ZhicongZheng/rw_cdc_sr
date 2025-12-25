@@ -2,35 +2,35 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use serde::Deserialize;
 use serde_json::json;
 use sqlx::MySqlPool;
 
 use super::connection::AppError;
 use crate::db::TaskRepository;
-use crate::models::{SyncTask, TaskLog, TaskStatus};
+use crate::models::{SyncTask, TaskLog, TaskStatus, HistoryQuery, PaginatedTasksResponse};
 
-#[derive(Deserialize)]
-pub struct HistoryQuery {
-    pub status: Option<String>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
 
 /// 获取任务历史
 pub async fn get_history(
     State(pool): State<MySqlPool>,
     Query(params): Query<HistoryQuery>,
-) -> Result<Json<Vec<SyncTask>>, AppError> {
+) -> Result<Json<PaginatedTasksResponse>, AppError> {
     let repo = TaskRepository::new(&pool);
 
     // Map optional status string into an optional TaskStatus, discarding infallible errors
     let status = params.status.and_then(|s| TaskStatus::try_from(s).ok());
-    let limit = params.limit.unwrap_or(50);
+    let limit = params.limit.unwrap_or(20);
     let offset = params.offset.unwrap_or(0);
 
-    let tasks = repo.find_history(status, limit, offset).await?;
-    Ok(Json(tasks))
+    let tasks = repo.find_history(status.clone(), limit, offset).await?;
+    let total = repo.count_tasks(status).await?;
+
+    Ok(Json(PaginatedTasksResponse {
+        tasks,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 /// 获取任务详情

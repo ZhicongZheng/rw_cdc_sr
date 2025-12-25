@@ -218,6 +218,22 @@ impl<'a> TaskRepository<'a> {
         Ok(tasks)
     }
 
+    /// 获取任务总数
+    pub async fn count_tasks(&self, status: Option<TaskStatus>) -> Result<i64> {
+        let count: (i64,) = if let Some(status) = status {
+            sqlx::query_as("SELECT COUNT(*) FROM sync_tasks WHERE status = ?")
+                .bind(status.as_str())
+                .fetch_one(self.pool)
+                .await?
+        } else {
+            sqlx::query_as("SELECT COUNT(*) FROM sync_tasks")
+                .fetch_one(self.pool)
+                .await?
+        };
+
+        Ok(count.0)
+    }
+
     /// 添加任务日志
     pub async fn add_log(&self, task_id: i64, level: &str, message: &str) -> Result<()> {
         sqlx::query(

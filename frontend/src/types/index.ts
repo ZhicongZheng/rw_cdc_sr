@@ -153,3 +153,11 @@ export interface TaskHistoryQuery {
   limit?: number;
   offset?: number;
 }
+
+// 分页任务响应
+export interface PaginatedTasksResponse {
+  tasks: SyncTask[];
+  total: number;
+  limit: number;
+  offset: number;
+}
