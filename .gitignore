@@ -2,7 +2,9 @@
 src-tauri/target/
 src-tauri/Cargo.lock
 target/
-Cargo.lock
+# Cargo.lock - 保留用于二进制项目的依赖锁定
+# 注意：库项目应该忽略 Cargo.lock，但二进制项目应该提交它
+# backend/Cargo.lock 不应该被忽略
 **/*.rs.bk
 *.pdb
 
