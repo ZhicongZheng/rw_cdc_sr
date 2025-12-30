@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Rust 后端构建（嵌入前端静态文件）
-FROM rust:1.75-slim AS backend-builder
+FROM rust:1.91.1-slim AS backend-builder
 
 # 安装构建依赖
 RUN apt-get update && apt-get install -y \
@@ -33,7 +33,7 @@ COPY backend/src ./src
 RUN cargo build --release
 
 # Stage 3: 运行时镜像
-FROM debian:bookworm-slim
+FROM debian:stable-slim
 
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y \
