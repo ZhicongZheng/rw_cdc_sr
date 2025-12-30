@@ -91,14 +91,6 @@ impl StarRocksDDLGenerator {
         format!("TRUNCATE TABLE `{}`.`{}`;", database, table)
     }
 
-    /// 检查表是否存在的查询
-    pub fn generate_check_table_exists_query(database: &str, table: &str) -> String {
-        format!(
-            "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = '{}' AND table_name = '{}'",
-            database, table
-        )
-    }
-
     /// 生成创建数据库的语句
     pub fn generate_create_database_ddl(database: &str) -> String {
         format!("CREATE DATABASE IF NOT EXISTS `{}`;", database)

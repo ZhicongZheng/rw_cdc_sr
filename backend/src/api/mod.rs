@@ -2,6 +2,7 @@ pub mod connection;
 pub mod metadata;
 pub mod sync;
 pub mod task;
+pub mod risingwave;
 
 use axum::{
     routing::{get, post, delete, put},
@@ -50,6 +51,13 @@ pub fn create_router(pool: MySqlPool) -> Router {
         .route("/api/tasks/:id", get(task::get_detail))
         .route("/api/tasks/:id/logs", get(task::get_logs))
         .route("/api/tasks/:id/cancel", post(task::cancel_task))
+
+        // RisingWave 对象管理路由
+        .route("/api/risingwave/schemas", get(risingwave::list_schemas))
+        .route("/api/risingwave/sources", get(risingwave::list_sources))
+        .route("/api/risingwave/tables", get(risingwave::list_tables))
+        .route("/api/risingwave/materialized_views", get(risingwave::list_materialized_views))
+        .route("/api/risingwave/sinks", get(risingwave::list_sinks))
 
         // CORS 配置
         .layer(CorsLayer::permissive())

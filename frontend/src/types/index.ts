@@ -161,3 +161,42 @@ export interface PaginatedTasksResponse {
   limit: number;
   offset: number;
 }
+
+// RisingWave 对象
+export interface RwSchema {
+  schema_name: string;
+}
+
+export interface RwSource {
+  id: number;
+  name: string;
+  schema_name: string;
+  owner: number;
+  connector: string;
+  columns: string[];
+}
+
+export interface RwTable {
+  id: number;
+  name: string;
+  schema_name: string;
+  owner: number;
+  definition?: string;
+}
+
+export interface RwMaterializedView {
+  id: number;
+  name: string;
+  schema_name: string;
+  owner: number;
+  definition?: string;
+}
+
+export interface RwSink {
+  id: number;
+  name: string;
+  schema_name: string;
+  owner: number;
+  connector: string;
+  target_table?: string;
+}

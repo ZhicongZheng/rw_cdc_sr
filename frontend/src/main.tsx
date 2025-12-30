@@ -7,6 +7,7 @@ import MainLayout from './components/MainLayout';
 import ConnectionConfig from './pages/ConnectionConfig';
 import TableSelection from './pages/TableSelection';
 import TaskManagement from './pages/TaskManagement';
+import RisingWaveManager from './pages/RisingWaveManager';
 import './styles/global.css';
 
 const App: React.FC = () => {
@@ -19,6 +20,7 @@ const App: React.FC = () => {
             <Route path="connections" element={<ConnectionConfig />} />
             <Route path="sync" element={<TableSelection />} />
             <Route path="tasks" element={<TaskManagement />} />
+            <Route path="risingwave" element={<RisingWaveManager />} />
           </Route>
         </Routes>
       </BrowserRouter>

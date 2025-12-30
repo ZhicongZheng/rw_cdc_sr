@@ -13,6 +13,11 @@ import type {
   TaskHistoryQuery,
   TaskLog,
   PaginatedTasksResponse,
+  RwSchema,
+  RwSource,
+  RwTable,
+  RwMaterializedView,
+  RwSink,
 } from '../types';
 
 // API 基础 URL（生产环境为空，开发环境通过 Vite 代理）
@@ -209,4 +214,46 @@ export const cancelTask = async (taskId: number): Promise<void> => {
   await apiFetch<{ success: boolean }>(`/api/tasks/${taskId}/cancel`, {
     method: 'POST',
   });
+};
+
+// ============ RisingWave 对象管理 ============
+
+export const listRwSchemas = async (configId: number): Promise<RwSchema[]> => {
+  return apiFetch<RwSchema[]>(`/api/risingwave/schemas?config_id=${configId}`);
+};
+
+export const listRwSources = async (
+  configId: number,
+  schema: string
+): Promise<RwSource[]> => {
+  return apiFetch<RwSource[]>(
+    `/api/risingwave/sources?config_id=${configId}&schema=${schema}`
+  );
+};
+
+export const listRwTables = async (
+  configId: number,
+  schema: string
+): Promise<RwTable[]> => {
+  return apiFetch<RwTable[]>(
+    `/api/risingwave/tables?config_id=${configId}&schema=${schema}`
+  );
+};
+
+export const listRwMaterializedViews = async (
+  configId: number,
+  schema: string
+): Promise<RwMaterializedView[]> => {
+  return apiFetch<RwMaterializedView[]>(
+    `/api/risingwave/materialized_views?config_id=${configId}&schema=${schema}`
+  );
+};
+
+export const listRwSinks = async (
+  configId: number,
+  schema: string
+): Promise<RwSink[]> => {
+  return apiFetch<RwSink[]>(
+    `/api/risingwave/sinks?config_id=${configId}&schema=${schema}`
+  );
 };

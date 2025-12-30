@@ -4,7 +4,7 @@ use sqlx::MySqlPool;
 use crate::db::ConfigRepository;
 use crate::models::TableSchema;
 use crate::services::MetadataService;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 
 use super::connection::AppError;
 

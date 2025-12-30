@@ -17,9 +17,6 @@ pub enum AppError {
     #[error("Type mapping error: {0}")]
     TypeMapping(String),
 
-    #[error("Task error: {0}")]
-    Task(String),
-
     #[error("Encryption error: {0}")]
     Encryption(String),
 

@@ -120,11 +120,6 @@ impl RisingWaveDDLGenerator {
         // Sink 命名: ods.{table}_to_sr_sink
         let sink_name = format!("{}.{}_to_sr_sink", rw_schema_name, &request.mysql_table);
 
-        let sr_database = sr_config
-            .database_name
-            .as_deref()
-            .unwrap_or(&request.target_database);
-
         // 检查是否有主键
         if schema.primary_keys.is_empty() {
             return Err(AppError::SqlGeneration(format!(
@@ -212,11 +207,6 @@ impl RisingWaveDDLGenerator {
         Ok(ddl)
     }
 
-    /// 生成删除 Source 的语句（数据库级别）
-    pub fn generate_drop_source_ddl(mysql_database: &str) -> String {
-        let source_name = format!("ods.ods_{}", mysql_database);
-        format!("DROP SOURCE IF EXISTS {} CASCADE;", source_name)
-    }
 
     /// 生成删除 Table 的语句
     pub fn generate_drop_table_ddl(mysql_table: &str) -> String {
@@ -230,11 +220,6 @@ impl RisingWaveDDLGenerator {
         format!("DROP SINK IF EXISTS {};", sink_name)
     }
 
-    /// 生成删除 Secret 的语句
-    pub fn generate_drop_secret_ddl(mysql_config: &DatabaseConfig) -> String {
-        let secret_name = Self::get_secret_name(mysql_config);
-        format!("DROP SECRET IF EXISTS {};", secret_name)
-    }
 }
 
 #[cfg(test)]

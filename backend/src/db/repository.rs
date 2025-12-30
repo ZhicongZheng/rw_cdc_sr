@@ -64,18 +64,6 @@ impl<'a> ConfigRepository<'a> {
         row.try_into()
     }
 
-    /// 根据类型获取配置
-    pub async fn find_by_type(&self, db_type: DbType) -> Result<Vec<DatabaseConfig>> {
-        let configs: Vec<_> = sqlx::query_as::<_, ConfigRow>(
-            "SELECT id, name, db_type, host, port, username, password, database_name, created_at, updated_at FROM database_configs WHERE db_type = ?",
-        )
-        .bind(db_type.as_str())
-        .fetch_all(self.pool)
-        .await?;
-
-        configs.into_iter().map(|row| row.try_into()).collect()
-    }
-
     /// 删除配置
     pub async fn delete(&self, id: i64) -> Result<()> {
         sqlx::query("DELETE FROM database_configs WHERE id = ?")

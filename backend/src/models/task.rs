@@ -78,23 +78,6 @@ pub struct SyncRequest {
     pub options: SyncOptions,
 }
 
-/// 批量同步请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchSyncRequest {
-    pub mysql_config_id: i64,
-    pub rw_config_id: i64,
-    pub sr_config_id: i64,
-    pub tables: Vec<TableSyncInfo>,
-    pub options: SyncOptions,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TableSyncInfo {
-    pub mysql_database: String,
-    pub mysql_table: String,
-    pub target_database: String,
-    pub target_table: String,
-}
 
 /// 同步任务
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -126,24 +109,6 @@ pub struct TaskLog {
     pub created_at: DateTime<Utc>,
 }
 
-/// 同步进度
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncProgress {
-    pub task_id: i64,
-    pub status: TaskStatus,
-    pub current_step: String,
-    pub total_steps: usize,
-    pub current_step_index: usize,
-    pub logs: Vec<String>,
-}
-
-/// 任务历史查询参数
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskHistoryQuery {
-    pub status: Option<TaskStatus>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
 
 
 #[derive(Deserialize)]

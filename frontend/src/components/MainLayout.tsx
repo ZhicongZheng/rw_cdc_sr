@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layout, Menu } from 'antd';
-import { DatabaseOutlined, TableOutlined, HistoryOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, TableOutlined, HistoryOutlined, ClusterOutlined } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
 const { Header, Content, Sider } = Layout;
@@ -24,6 +24,11 @@ const MainLayout: React.FC = () => {
       key: '/tasks',
       icon: <HistoryOutlined />,
       label: '任务管理',
+    },
+    {
+      key: '/risingwave',
+      icon: <ClusterOutlined />,
+      label: 'RisingWave 对象',
     },
   ];
 
