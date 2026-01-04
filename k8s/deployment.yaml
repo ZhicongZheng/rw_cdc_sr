@@ -1,73 +1,3 @@
-# PostgreSQL 部署（如果 K8s 中没有）
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      containers:
-      - name: postgres
-        image: postgres:15-alpine
-        ports:
-        - containerPort: 5432
-        env:
-        - name: POSTGRES_DB
-          value: rw_cdc_sr
-        - name: POSTGRES_USER
-          value: postgres
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: password
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql/data
-      volumes:
-      - name: postgres-storage
-        persistentVolumeClaim:
-          claimName: postgres-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-spec:
-  selector:
-    app: postgres
-  ports:
-  - port: 5432
-    targetPort: 5432
-  type: ClusterIP
----
-# PostgreSQL Secret
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-type: Opaque
-stringData:
-  password: "your-secure-password-here"  # 生产环境请使用 Sealed Secrets 或外部密钥管理
----
 # RW CDC SR 应用部署
 apiVersion: apps/v1
 kind: Deployment
@@ -76,7 +6,7 @@ metadata:
   labels:
     app: rw-cdc-sr
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: rw-cdc-sr
@@ -86,44 +16,39 @@ spec:
         app: rw-cdc-sr
     spec:
       containers:
-      - name: rw-cdc-sr
-        image: your-registry/rw-cdc-sr:latest  # 替换为您的镜像仓库地址
-        imagePullPolicy: Always
-        ports:
-        - name: http
-          containerPort: 3000
-          protocol: TCP
-        env:
-        - name: DATABASE_URL
-          value: "postgres://postgres:$(POSTGRES_PASSWORD)@postgres:5432/rw_cdc_sr"
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: password
-        - name: PORT
-          value: "3000"
-        - name: RUST_LOG
-          value: "info,rw_cdc_sr=debug"
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /api/health
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /api/health
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 5
+        - name: rw-cdc-sr
+          image: vgvics/rw-cdc-sr:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: "mysql://risingwave_admin:vN3P4$WNKdGuNc@apnv3-db.default:3306/rw_cdc"
+            - name: PORT
+              value: "3000"
+            - name: RUST_LOG
+              value: "info,rw_cdc_sr=debug"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
 ---
 # Service
 apiVersion: v1
@@ -137,33 +62,7 @@ spec:
   selector:
     app: rw-cdc-sr
   ports:
-  - name: http
-    port: 80
-    targetPort: 3000
-    protocol: TCP
----
-# Ingress (使用 Nginx Ingress Controller)
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: rw-cdc-sr
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # 如果使用 cert-manager
-spec:
-  ingressClassName: nginx
-  tls:
-  - hosts:
-    - rw-cdc.yourdomain.com  # 替换为您的域名
-    secretName: rw-cdc-sr-tls
-  rules:
-  - host: rw-cdc.yourdomain.com  # 替换为您的域名
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: rw-cdc-sr
-            port:
-              number: 80
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

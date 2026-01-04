@@ -81,7 +81,8 @@ impl RisingWaveDDLGenerator {
     }
 
     pub fn get_source_name(mysql_database: &str) -> String {
-        format!("ods_{}_source", mysql_database)
+        let schema_name = Self::get_rw_schema_name(mysql_database);
+        format!("{}.ods_{}_source", schema_name, mysql_database)
     }
 
     /// 生成 Table 创建语句（从 CDC Source，使用简化语法）

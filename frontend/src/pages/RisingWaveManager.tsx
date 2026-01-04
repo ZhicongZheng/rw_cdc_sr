@@ -9,7 +9,10 @@ import {
   Typography,
   Space,
   Tag,
+  Button,
+  Modal,
 } from "antd";
+import { EyeOutlined, CopyOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import * as api from "../services/api";
 import type {
@@ -21,7 +24,7 @@ import type {
   RwSink,
 } from "../types";
 
-const { Title } = Typography;
+const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
 
 const RisingWaveManager: React.FC = () => {
@@ -38,6 +41,11 @@ const RisingWaveManager: React.FC = () => {
     RwMaterializedView[]
   >([]);
   const [sinks, setSinks] = useState<RwSink[]>([]);
+
+  // Modal states for viewing SQL definitions
+  const [sqlModalVisible, setSqlModalVisible] = useState(false);
+  const [sqlModalContent, setSqlModalContent] = useState("");
+  const [sqlModalTitle, setSqlModalTitle] = useState("");
 
   // Load RisingWave connections on mount
   useEffect(() => {
@@ -112,6 +120,25 @@ const RisingWaveManager: React.FC = () => {
     }
   };
 
+  // Show SQL definition in modal
+  const showSqlModal = (title: string, sql: string) => {
+    setSqlModalTitle(title);
+    setSqlModalContent(sql);
+    setSqlModalVisible(true);
+  };
+
+  // Copy SQL to clipboard
+  const copySql = (sql: string) => {
+    navigator.clipboard.writeText(sql).then(
+      () => {
+        message.success("已复制到剪贴板");
+      },
+      () => {
+        message.error("复制失败");
+      }
+    );
+  };
+
   // Table columns definitions
   const sourceColumns: ColumnsType<RwSource> = [
     {
@@ -175,7 +202,24 @@ const RisingWaveManager: React.FC = () => {
       title: "定义",
       dataIndex: "definition",
       key: "definition",
-      ellipsis: true,
+      ellipsis: {
+        showTitle: false,
+      },
+      render: (definition: string | undefined, record: RwTable) => {
+        if (!definition) return "-";
+        return (
+          <Space>
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => showSqlModal(`Table: ${record.name}`, definition)}
+            >
+              查看
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -205,7 +249,26 @@ const RisingWaveManager: React.FC = () => {
       title: "定义",
       dataIndex: "definition",
       key: "definition",
-      ellipsis: true,
+      ellipsis: {
+        showTitle: false,
+      },
+      render: (definition: string | undefined, record: RwMaterializedView) => {
+        if (!definition) return "-";
+        return (
+          <Space>
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() =>
+                showSqlModal(`Materialized View: ${record.name}`, definition)
+              }
+            >
+              查看
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -236,7 +299,12 @@ const RisingWaveManager: React.FC = () => {
       dataIndex: "connector",
       key: "connector",
       render: (connector: string) => <Tag color="green">{connector}</Tag>,
-    }
+    },
+    {
+      title: "目标表",
+      dataIndex: "target_table",
+      key: "target_table",
+    },
   ];
 
   return (
@@ -327,6 +395,46 @@ const RisingWaveManager: React.FC = () => {
           </Tabs>
         </Card>
       </Spin>
+
+      {/* SQL Definition Modal */}
+      <Modal
+        title={sqlModalTitle}
+        open={sqlModalVisible}
+        onCancel={() => setSqlModalVisible(false)}
+        width={800}
+        footer={[
+          <Button
+            key="copy"
+            icon={<CopyOutlined />}
+            onClick={() => copySql(sqlModalContent)}
+          >
+            复制 SQL
+          </Button>,
+          <Button
+            key="close"
+            type="primary"
+            onClick={() => setSqlModalVisible(false)}
+          >
+            关闭
+          </Button>,
+        ]}
+      >
+        <Paragraph
+          code
+          copyable
+          style={{
+            background: "#f5f5f5",
+            padding: "12px",
+            borderRadius: "4px",
+            maxHeight: "500px",
+            overflow: "auto",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {sqlModalContent}
+        </Paragraph>
+      </Modal>
     </div>
   );
 };

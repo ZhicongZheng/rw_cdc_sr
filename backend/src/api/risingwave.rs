@@ -85,6 +85,7 @@ pub async fn list_schemas(
     Query(params): Query<RwObjectQuery>,
 ) -> Result<Json<Vec<RwSchema>>, AppError> {
     let rw_pool = get_rw_pool(&pool, params.config_id).await?;
+    let internal_schema = vec!["rw_catalog","information_schema", "pg_catalog"];
 
     let schemas: Vec<RwSchema> = sqlx::query(
         "SELECT name as schema_name FROM rw_catalog.rw_schemas
@@ -96,6 +97,7 @@ pub async fn list_schemas(
     .map(|row| RwSchema {
         schema_name: row.get("schema_name"),
     })
+    .filter(|schema| !internal_schema.contains(&schema.schema_name.as_str()))
     .collect();
 
     Ok(Json(schemas))
