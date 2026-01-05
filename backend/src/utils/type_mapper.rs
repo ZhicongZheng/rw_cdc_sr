@@ -57,6 +57,7 @@ impl TypeMapper {
 
             // 其他类型
             "BOOLEAN" | "BOOL" => "BOOLEAN",
+            "BIT" => "BOOLEAN",
             "ENUM" => "VARCHAR(255)", // ENUM 转换为 VARCHAR
             "SET" => "TEXT",           // SET 转换为 TEXT
 
