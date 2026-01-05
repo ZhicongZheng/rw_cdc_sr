@@ -257,3 +257,47 @@ export const listRwSinks = async (
     `/api/risingwave/sinks?config_id=${configId}&schema=${schema}`
   );
 };
+
+export const deleteRwSource = async (
+  configId: number,
+  schema: string,
+  name: string
+): Promise<void> => {
+  await apiFetch<{ success: boolean }>('/api/risingwave/sources/delete', {
+    method: 'POST',
+    body: JSON.stringify({ config_id: configId, schema, name }),
+  });
+};
+
+export const deleteRwTable = async (
+  configId: number,
+  schema: string,
+  name: string
+): Promise<void> => {
+  await apiFetch<{ success: boolean }>('/api/risingwave/tables/delete', {
+    method: 'POST',
+    body: JSON.stringify({ config_id: configId, schema, name }),
+  });
+};
+
+export const deleteRwMaterializedView = async (
+  configId: number,
+  schema: string,
+  name: string
+): Promise<void> => {
+  await apiFetch<{ success: boolean }>('/api/risingwave/materialized_views/delete', {
+    method: 'POST',
+    body: JSON.stringify({ config_id: configId, schema, name }),
+  });
+};
+
+export const deleteRwSink = async (
+  configId: number,
+  schema: string,
+  name: string
+): Promise<void> => {
+  await apiFetch<{ success: boolean }>('/api/risingwave/sinks/delete', {
+    method: 'POST',
+    body: JSON.stringify({ config_id: configId, schema, name }),
+  });
+};

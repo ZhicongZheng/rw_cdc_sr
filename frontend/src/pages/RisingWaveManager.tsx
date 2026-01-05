@@ -11,8 +11,9 @@ import {
   Tag,
   Button,
   Modal,
+  Popconfirm,
 } from "antd";
-import { EyeOutlined, CopyOutlined } from "@ant-design/icons";
+import { EyeOutlined, CopyOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import * as api from "../services/api";
 import type {
@@ -139,6 +140,51 @@ const RisingWaveManager: React.FC = () => {
     );
   };
 
+  // Delete handlers
+  const handleDeleteSource = async (name: string, schemaName: string) => {
+    if (!selectedRwId) return;
+    try {
+      await api.deleteRwSource(selectedRwId, schemaName, name);
+      message.success(`已删除 Source: ${name}`);
+      loadAllObjects();
+    } catch (error) {
+      message.error("删除失败: " + error);
+    }
+  };
+
+  const handleDeleteTable = async (name: string, schemaName: string) => {
+    if (!selectedRwId) return;
+    try {
+      await api.deleteRwTable(selectedRwId, schemaName, name);
+      message.success(`已删除 Table: ${name}`);
+      loadAllObjects();
+    } catch (error) {
+      message.error("删除失败: " + error);
+    }
+  };
+
+  const handleDeleteMaterializedView = async (name: string, schemaName: string) => {
+    if (!selectedRwId) return;
+    try {
+      await api.deleteRwMaterializedView(selectedRwId, schemaName, name);
+      message.success(`已删除 Materialized View: ${name}`);
+      loadAllObjects();
+    } catch (error) {
+      message.error("删除失败: " + error);
+    }
+  };
+
+  const handleDeleteSink = async (name: string, schemaName: string) => {
+    if (!selectedRwId) return;
+    try {
+      await api.deleteRwSink(selectedRwId, schemaName, name);
+      message.success(`已删除 Sink: ${name}`);
+      loadAllObjects();
+    } catch (error) {
+      message.error("删除失败: " + error);
+    }
+  };
+
   // Table columns definitions
   const sourceColumns: ColumnsType<RwSource> = [
     {
@@ -174,6 +220,26 @@ const RisingWaveManager: React.FC = () => {
       key: "columns",
       render: (columns: string[]) => columns.join(", "),
     },
+    {
+      title: "操作",
+      key: "actions",
+      width: 120,
+      render: (_: any, record: RwSource) => (
+        <Space>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除 Source "${record.name}" 吗？`}
+            onConfirm={() => handleDeleteSource(record.name, record.schema_name)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
   ];
 
   const tableColumns: ColumnsType<RwTable> = [
@@ -199,27 +265,34 @@ const RisingWaveManager: React.FC = () => {
       key: "owner",
     },
     {
-      title: "定义",
-      dataIndex: "definition",
-      key: "definition",
-      ellipsis: {
-        showTitle: false,
-      },
-      render: (definition: string | undefined, record: RwTable) => {
-        if (!definition) return "-";
-        return (
-          <Space>
+      title: "操作",
+      key: "actions",
+      width: 150,
+      render: (_: any, record: RwTable) => (
+        <Space>
+          {record.definition && (
             <Button
               type="link"
               size="small"
               icon={<EyeOutlined />}
-              onClick={() => showSqlModal(`Table: ${record.name}`, definition)}
+              onClick={() => showSqlModal(`Table: ${record.name}`, record.definition!)}
             >
               查看
             </Button>
-          </Space>
-        );
-      },
+          )}
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除 Table "${record.name}" 吗？`}
+            onConfirm={() => handleDeleteTable(record.name, record.schema_name)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
     },
   ];
 
@@ -246,29 +319,36 @@ const RisingWaveManager: React.FC = () => {
       key: "owner",
     },
     {
-      title: "定义",
-      dataIndex: "definition",
-      key: "definition",
-      ellipsis: {
-        showTitle: false,
-      },
-      render: (definition: string | undefined, record: RwMaterializedView) => {
-        if (!definition) return "-";
-        return (
-          <Space>
+      title: "操作",
+      key: "actions",
+      width: 150,
+      render: (_: any, record: RwMaterializedView) => (
+        <Space>
+          {record.definition && (
             <Button
               type="link"
               size="small"
               icon={<EyeOutlined />}
               onClick={() =>
-                showSqlModal(`Materialized View: ${record.name}`, definition)
+                showSqlModal(`Materialized View: ${record.name}`, record.definition!)
               }
             >
               查看
             </Button>
-          </Space>
-        );
-      },
+          )}
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除 Materialized View "${record.name}" 吗？`}
+            onConfirm={() => handleDeleteMaterializedView(record.name, record.schema_name)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
     },
   ];
 
@@ -304,6 +384,26 @@ const RisingWaveManager: React.FC = () => {
       title: "目标表",
       dataIndex: "target_table",
       key: "target_table",
+    },
+    {
+      title: "操作",
+      key: "actions",
+      width: 120,
+      render: (_: any, record: RwSink) => (
+        <Space>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除 Sink "${record.name}" 吗？`}
+            onConfirm={() => handleDeleteSink(record.name, record.schema_name)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
     },
   ];
 

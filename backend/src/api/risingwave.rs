@@ -15,6 +15,13 @@ pub struct RwObjectQuery {
     pub schema: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct DeleteObjectRequest {
+    pub config_id: i64,
+    pub schema: String,
+    pub name: String,
+}
+
 #[derive(Serialize)]
 pub struct RwSchema {
     pub schema_name: String,
@@ -237,4 +244,64 @@ pub async fn list_sinks(
     .collect();
 
     Ok(Json(sinks))
+}
+
+/// 删除 source
+pub async fn delete_source(
+    State(pool): State<sqlx::MySqlPool>,
+    Json(request): Json<DeleteObjectRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let rw_pool = get_rw_pool(&pool, request.config_id).await?;
+
+    let drop_sql = format!("DROP SOURCE IF EXISTS \"{}\".\"{}\"", request.schema, request.name);
+    sqlx::query(&drop_sql)
+        .execute(&rw_pool)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+/// 删除 table
+pub async fn delete_table(
+    State(pool): State<sqlx::MySqlPool>,
+    Json(request): Json<DeleteObjectRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let rw_pool = get_rw_pool(&pool, request.config_id).await?;
+
+    let drop_sql = format!("DROP TABLE IF EXISTS \"{}\".\"{}\"", request.schema, request.name);
+    sqlx::query(&drop_sql)
+        .execute(&rw_pool)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+/// 删除 materialized view
+pub async fn delete_materialized_view(
+    State(pool): State<sqlx::MySqlPool>,
+    Json(request): Json<DeleteObjectRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let rw_pool = get_rw_pool(&pool, request.config_id).await?;
+
+    let drop_sql = format!("DROP MATERIALIZED VIEW IF EXISTS \"{}\".\"{}\"", request.schema, request.name);
+    sqlx::query(&drop_sql)
+        .execute(&rw_pool)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
+/// 删除 sink
+pub async fn delete_sink(
+    State(pool): State<sqlx::MySqlPool>,
+    Json(request): Json<DeleteObjectRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let rw_pool = get_rw_pool(&pool, request.config_id).await?;
+
+    let drop_sql = format!("DROP SINK IF EXISTS \"{}\".\"{}\"", request.schema, request.name);
+    sqlx::query(&drop_sql)
+        .execute(&rw_pool)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }
