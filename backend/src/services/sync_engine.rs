@@ -349,19 +349,40 @@ impl SyncEngine {
                 crate::utils::error::AppError::Unknown(format!("Failed to drop table: {}", e))
             })?;
         } else if request.options.truncate_sr_table {
-            task_repo
-                .add_log(task_id, "info", "Truncating StarRocks table...")
-                .await?;
-
-            let truncate_ddl = StarRocksDDLGenerator::generate_truncate_table_ddl(
-                &request.target_database,
-                &request.target_table,
+            // 先检查表是否存在
+            let check_table_sql = format!(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = '{}' AND table_name = '{}' LIMIT 1",
+                request.target_database,
+                request.target_table
             );
-            tracing::debug!("Truncate table DDL: {}", truncate_ddl);
-            sr_conn.query_drop(&truncate_ddl).await.map_err(|e| {
-                tracing::error!("Failed to truncate StarRocks table: {}", e);
-                crate::utils::error::AppError::Unknown(format!("Failed to truncate table: {}", e))
+            tracing::debug!("Check table existence SQL: {}", check_table_sql);
+
+            let table_exists: Option<i32> = sr_conn.query_first(&check_table_sql).await.map_err(|e| {
+                tracing::error!("Failed to check if table exists: {}", e);
+                crate::utils::error::AppError::Unknown(format!("Failed to check table existence: {}", e))
             })?;
+
+            if table_exists.is_some() {
+                task_repo
+                    .add_log(task_id, "info", "Truncating StarRocks table...")
+                    .await?;
+
+                let truncate_ddl = StarRocksDDLGenerator::generate_truncate_table_ddl(
+                    &request.target_database,
+                    &request.target_table,
+                );
+                tracing::debug!("Truncate table DDL: {}", truncate_ddl);
+                sr_conn.query_drop(&truncate_ddl).await.map_err(|e| {
+                    tracing::error!("Failed to truncate StarRocks table: {}", e);
+                    crate::utils::error::AppError::Unknown(format!("Failed to truncate table: {}", e))
+                })?;
+                tracing::info!("Successfully truncated table: {}.{}", request.target_database, request.target_table);
+            } else {
+                task_repo
+                    .add_log(task_id, "info", "Table does not exist, skipping truncate...")
+                    .await?;
+                tracing::info!("Table {}.{} does not exist, skipping truncate", request.target_database, request.target_table);
+            }
         }
 
         // 创建表
