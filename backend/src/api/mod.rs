@@ -62,6 +62,7 @@ pub fn create_router(pool: MySqlPool) -> Router {
         .route("/api/risingwave/tables/delete", post(risingwave::delete_table))
         .route("/api/risingwave/materialized_views/delete", post(risingwave::delete_materialized_view))
         .route("/api/risingwave/sinks/delete", post(risingwave::delete_sink))
+        .route("/api/risingwave/objects/batch_delete", post(risingwave::batch_delete_objects))
 
         // CORS 配置
         .layer(CorsLayer::permissive())

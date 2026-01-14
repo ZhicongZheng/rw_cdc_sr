@@ -301,3 +301,23 @@ export const deleteRwSink = async (
     body: JSON.stringify({ config_id: configId, schema, name }),
   });
 };
+
+export const batchDeleteRwObjects = async (
+  configId: number,
+  schema: string,
+  objectType: 'source' | 'table' | 'materialized_view' | 'sink',
+  names: string[]
+): Promise<{ success: boolean; deleted_count: number; total_count: number; failed: string[] }> => {
+  return apiFetch<{ success: boolean; deleted_count: number; total_count: number; failed: string[] }>(
+    '/api/risingwave/objects/batch_delete',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        config_id: configId,
+        schema,
+        object_type: objectType,
+        names,
+      }),
+    }
+  );
+};

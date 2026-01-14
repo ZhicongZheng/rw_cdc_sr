@@ -48,6 +48,12 @@ const RisingWaveManager: React.FC = () => {
   const [sqlModalContent, setSqlModalContent] = useState("");
   const [sqlModalTitle, setSqlModalTitle] = useState("");
 
+  // Row selection states
+  const [selectedSourceKeys, setSelectedSourceKeys] = useState<React.Key[]>([]);
+  const [selectedTableKeys, setSelectedTableKeys] = useState<React.Key[]>([]);
+  const [selectedMvKeys, setSelectedMvKeys] = useState<React.Key[]>([]);
+  const [selectedSinkKeys, setSelectedSinkKeys] = useState<React.Key[]>([]);
+
   // Load RisingWave connections on mount
   useEffect(() => {
     loadConnections();
@@ -182,6 +188,41 @@ const RisingWaveManager: React.FC = () => {
       loadAllObjects();
     } catch (error) {
       message.error("删除失败: " + error);
+    }
+  };
+
+  // Batch delete handlers
+  const handleBatchDelete = async (
+    objectType: 'source' | 'table' | 'materialized_view' | 'sink',
+    selectedKeys: React.Key[],
+    objects: Array<{ id: number; name: string; schema_name: string }>,
+    clearSelection: () => void
+  ) => {
+    if (!selectedRwId || !selectedSchema || selectedKeys.length === 0) return;
+
+    const selectedObjects = objects.filter(obj => selectedKeys.includes(obj.id));
+    const names = selectedObjects.map(obj => obj.name);
+
+    try {
+      const result = await api.batchDeleteRwObjects(
+        selectedRwId,
+        selectedSchema,
+        objectType,
+        names
+      );
+
+      if (result.success) {
+        message.success(`成功删除 ${result.deleted_count} 个对象`);
+      } else {
+        message.warning(
+          `删除完成：成功 ${result.deleted_count} 个，失败 ${result.failed.length} 个`
+        );
+      }
+
+      clearSelection();
+      loadAllObjects();
+    } catch (error) {
+      message.error("批量删除失败: " + error);
     }
   };
 
@@ -455,20 +496,58 @@ const RisingWaveManager: React.FC = () => {
         <Card>
           <Tabs defaultActiveKey="sources">
             <TabPane tab={`Sources (${sources.length})`} key="sources">
+              {selectedSourceKeys.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <Popconfirm
+                    title="批量删除确认"
+                    description={`确定要删除选中的 ${selectedSourceKeys.length} 个 Source 吗？`}
+                    onConfirm={() => handleBatchDelete('source', selectedSourceKeys, sources, () => setSelectedSourceKeys([]))}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="primary" danger>
+                      批量删除 ({selectedSourceKeys.length})
+                    </Button>
+                  </Popconfirm>
+                </div>
+              )}
               <Table
                 columns={sourceColumns}
                 dataSource={sources}
                 rowKey="id"
                 pagination={{ pageSize: 20 }}
+                rowSelection={{
+                  selectedRowKeys: selectedSourceKeys,
+                  onChange: setSelectedSourceKeys,
+                }}
               />
             </TabPane>
 
             <TabPane tab={`Tables (${tables.length})`} key="tables">
+              {selectedTableKeys.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <Popconfirm
+                    title="批量删除确认"
+                    description={`确定要删除选中的 ${selectedTableKeys.length} 个 Table 吗？`}
+                    onConfirm={() => handleBatchDelete('table', selectedTableKeys, tables, () => setSelectedTableKeys([]))}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="primary" danger>
+                      批量删除 ({selectedTableKeys.length})
+                    </Button>
+                  </Popconfirm>
+                </div>
+              )}
               <Table
                 columns={tableColumns}
                 dataSource={tables}
                 rowKey="id"
                 pagination={{ pageSize: 20 }}
+                rowSelection={{
+                  selectedRowKeys: selectedTableKeys,
+                  onChange: setSelectedTableKeys,
+                }}
               />
             </TabPane>
 
@@ -476,20 +555,58 @@ const RisingWaveManager: React.FC = () => {
               tab={`Materialized Views (${materializedViews.length})`}
               key="mvs"
             >
+              {selectedMvKeys.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <Popconfirm
+                    title="批量删除确认"
+                    description={`确定要删除选中的 ${selectedMvKeys.length} 个 Materialized View 吗？`}
+                    onConfirm={() => handleBatchDelete('materialized_view', selectedMvKeys, materializedViews, () => setSelectedMvKeys([]))}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="primary" danger>
+                      批量删除 ({selectedMvKeys.length})
+                    </Button>
+                  </Popconfirm>
+                </div>
+              )}
               <Table
                 columns={mvColumns}
                 dataSource={materializedViews}
                 rowKey="id"
                 pagination={{ pageSize: 20 }}
+                rowSelection={{
+                  selectedRowKeys: selectedMvKeys,
+                  onChange: setSelectedMvKeys,
+                }}
               />
             </TabPane>
 
             <TabPane tab={`Sinks (${sinks.length})`} key="sinks">
+              {selectedSinkKeys.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <Popconfirm
+                    title="批量删除确认"
+                    description={`确定要删除选中的 ${selectedSinkKeys.length} 个 Sink 吗？`}
+                    onConfirm={() => handleBatchDelete('sink', selectedSinkKeys, sinks, () => setSelectedSinkKeys([]))}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="primary" danger>
+                      批量删除 ({selectedSinkKeys.length})
+                    </Button>
+                  </Popconfirm>
+                </div>
+              )}
               <Table
                 columns={sinkColumns}
                 dataSource={sinks}
                 rowKey="id"
                 pagination={{ pageSize: 20 }}
+                rowSelection={{
+                  selectedRowKeys: selectedSinkKeys,
+                  onChange: setSelectedSinkKeys,
+                }}
               />
             </TabPane>
           </Tabs>

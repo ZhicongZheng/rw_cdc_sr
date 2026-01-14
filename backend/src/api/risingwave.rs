@@ -22,6 +22,14 @@ pub struct DeleteObjectRequest {
     pub name: String,
 }
 
+#[derive(Deserialize)]
+pub struct BatchDeleteObjectRequest {
+    pub config_id: i64,
+    pub schema: String,
+    pub object_type: String,  // "source", "table", "materialized_view", "sink"
+    pub names: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct RwSchema {
     pub schema_name: String,
@@ -304,4 +312,50 @@ pub async fn delete_sink(
         .await?;
 
     Ok(Json(serde_json::json!({ "success": true })))
+}
+
+/// 批量删除对象
+pub async fn batch_delete_objects(
+    State(pool): State<sqlx::MySqlPool>,
+    Json(request): Json<BatchDeleteObjectRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let rw_pool = get_rw_pool(&pool, request.config_id).await?;
+
+    let object_type_sql = match request.object_type.as_str() {
+        "source" => "SOURCE",
+        "table" => "TABLE",
+        "materialized_view" => "MATERIALIZED VIEW",
+        "sink" => "SINK",
+        _ => {
+            return Err(crate::utils::error::AppError::InvalidInput(
+                format!("Invalid object type: {}", request.object_type)
+            ).into())
+        }
+    };
+
+    let mut success_count = 0;
+    let mut failed = Vec::new();
+
+    for name in &request.names {
+        let drop_sql = format!("DROP {} IF EXISTS \"{}\".\"{}\"", object_type_sql, request.schema, name);
+        tracing::debug!("Executing: {}", drop_sql);
+
+        match sqlx::query(&drop_sql).execute(&rw_pool).await {
+            Ok(_) => {
+                tracing::info!("Successfully deleted {} {}", object_type_sql, name);
+                success_count += 1;
+            },
+            Err(e) => {
+                tracing::error!("Failed to delete {} {}: {}", object_type_sql, name, e);
+                failed.push(name.clone());
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": failed.is_empty(),
+        "deleted_count": success_count,
+        "total_count": request.names.len(),
+        "failed": failed,
+    })))
 }
