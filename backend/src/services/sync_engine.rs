@@ -220,25 +220,25 @@ impl SyncEngine {
         })?;
         tracing::info!("Successfully connected to RisingWave");
 
-        // 创建 ods schema
+        // 创建 schema (使用 target_database)
         task_repo
-            .add_log(task_id, "info", "Creating ods schema in RisingWave...")
+            .add_log(task_id, "info", &format!("Creating schema {} in RisingWave...", request.target_database))
             .await?;
 
-        let schema_ddl = RisingWaveDDLGenerator::generate_create_schema_ddl(&request.mysql_database);
+        let schema_ddl = RisingWaveDDLGenerator::generate_create_schema_ddl(&request.target_database);
         tracing::debug!("Schema DDL: {}", schema_ddl);
         sqlx::query(&schema_ddl).execute(&rw_pool).await.map_err(|e| {
-            tracing::error!("Failed to create ods schema: {}", e);
+            tracing::error!("Failed to create schema: {}", e);
             e
         })?;
-        tracing::info!("Ensured ods schema exists");
+        tracing::info!("Ensured schema {} exists", request.target_database);
 
         // 创建 SECRET
         task_repo
             .add_log(task_id, "info", "Creating secret for MySQL password...")
             .await?;
 
-        let secret_ddl = RisingWaveDDLGenerator::generate_secret_ddl(mysql_config)?;
+        let secret_ddl = RisingWaveDDLGenerator::generate_secret_ddl(mysql_config, &request.target_database)?;
         tracing::debug!("Secret DDL: {}", secret_ddl);
         sqlx::query(&secret_ddl).execute(&rw_pool).await.map_err(|e| {
             tracing::error!("Failed to create secret: {}", e);
@@ -252,7 +252,7 @@ impl SyncEngine {
                 .add_log(task_id, "info", "Dropping existing RisingWave objects...")
                 .await?;
 
-            Self::drop_risingwave_objects(&rw_pool, &request.mysql_database, &request.mysql_table).await?;
+            Self::drop_risingwave_objects(&rw_pool, request).await?;
         }
 
         // 创建数据库级别的 CDC Source
@@ -264,7 +264,11 @@ impl SyncEngine {
             )
             .await?;
 
-        let source_ddl = RisingWaveDDLGenerator::generate_source_ddl(mysql_config, &request.mysql_database)?;
+        let source_ddl = RisingWaveDDLGenerator::generate_source_ddl(
+            mysql_config,
+            &request.mysql_database,
+            &request.target_database
+        )?;
         tracing::debug!("Source DDL: {}", source_ddl);
         sqlx::query(&source_ddl).execute(&rw_pool).await.map_err(|e| {
             tracing::error!("Failed to create RisingWave source: {}", e);
@@ -277,17 +281,22 @@ impl SyncEngine {
             .add_log(
                 task_id,
                 "info",
-                &format!("Creating RisingWave table ods.{}...", request.mysql_table),
+                &format!("Creating RisingWave table {}.{}...", request.target_database, request.target_table),
             )
             .await?;
 
-        let table_ddl = RisingWaveDDLGenerator::generate_table_ddl(&request.mysql_database, &request.mysql_table)?;
+        let table_ddl = RisingWaveDDLGenerator::generate_table_ddl(
+            &request.mysql_database,
+            &request.mysql_table,
+            &request.target_database,
+            &request.target_table
+        )?;
         tracing::debug!("Table DDL: {}", table_ddl);
         sqlx::query(&table_ddl).execute(&rw_pool).await.map_err(|e| {
             tracing::error!("Failed to create RisingWave table: {}", e);
             e
         })?;
-        tracing::info!("Successfully created RisingWave table ods.{}", request.mysql_table);
+        tracing::info!("Successfully created RisingWave table {}.{}", request.target_database, request.target_table);
 
         Ok(rw_pool)
     }
@@ -440,23 +449,29 @@ impl SyncEngine {
     /// 删除 RisingWave 对象
     async fn drop_risingwave_objects(
         pool: &PgPool,
-        mysql_database: &str,
-        mysql_table: &str,
+        request: &SyncRequest,
     ) -> Result<()> {
         // 先删除 Sink
-        let drop_sink = RisingWaveDDLGenerator::generate_drop_sink_ddl(mysql_table);
+        let drop_sink = RisingWaveDDLGenerator::generate_drop_sink_ddl(
+            &request.target_database,
+            &request.target_table
+        );
         tracing::debug!("Drop sink DDL: {}", drop_sink);
         let _ = sqlx::query(&drop_sink).execute(pool).await; // 忽略错误
 
         // 再删除 Table
-        let drop_table = RisingWaveDDLGenerator::generate_drop_table_ddl(mysql_table);
+        let drop_table = RisingWaveDDLGenerator::generate_drop_table_ddl(
+            &request.target_database,
+            &request.target_table
+        );
         tracing::debug!("Drop table DDL: {}", drop_table);
         let _ = sqlx::query(&drop_table).execute(pool).await; // 忽略错误
 
         // 注意：不删除 Source，因为 Source 是数据库级别的，可能被其他表使用
         tracing::info!(
-            "Note: Database-level source ods.ods_{} is retained for reuse",
-            mysql_database
+            "Note: Database-level source {}.{}_source is retained for reuse",
+            request.target_database,
+            request.mysql_database
         );
 
         Ok(())
