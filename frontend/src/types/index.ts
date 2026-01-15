@@ -174,6 +174,7 @@ export interface RwSource {
   owner: number;
   connector: string;
   columns: string[];
+  definition?: string;
 }
 
 export interface RwTable {
@@ -199,4 +200,5 @@ export interface RwSink {
   owner: number;
   connector: string;
   target_table?: string;
+  definition?: string;
 }

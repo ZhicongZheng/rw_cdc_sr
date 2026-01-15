@@ -31,6 +31,25 @@ impl RisingWaveDDLGenerator {
         format!("\"{}\".mysql_pwd", target_database)
     }
 
+    /// 生成创建 StarRocks SECRET 的语句（用于存储 StarRocks 密码）
+    /// 使用 target_database.starrocks_pwd 作为 secret 名称
+    pub fn generate_starrocks_secret_ddl(sr_config: &DatabaseConfig, target_database: &str) -> Result<String> {
+        let secret_name = Self::get_starrocks_secret_name(target_database);
+
+        let ddl = format!(
+            r#"CREATE SECRET IF NOT EXISTS {} WITH ( backend = 'meta' ) AS '{}';"#,
+            secret_name,
+            sr_config.password.replace('\'', "''") // 转义单引号
+        );
+
+        Ok(ddl)
+    }
+
+    /// 获取 StarRocks secret 名称: {target_database}.starrocks_pwd
+    pub fn get_starrocks_secret_name(target_database: &str) -> String {
+        format!("\"{}\".starrocks_pwd", target_database)
+    }
+
     /// 生成数据库级别的 CDC Source 创建语句
     /// 一个 Source 对应整个 MySQL 数据库，而不是单个表
     /// Source 命名: {target_database}.{mysql_database}_source
@@ -111,6 +130,9 @@ impl RisingWaveDDLGenerator {
         // Sink 命名: {target_database}.{target_table}_to_sr_sink
         let sink_name = format!("\"{}\".{}_to_sr_sink", &request.target_database, &request.target_table);
 
+        // 获取 StarRocks secret 名称
+        let sr_secret_name = Self::get_starrocks_secret_name(&request.target_database);
+
         // 检查是否有主键
         if schema.primary_keys.is_empty() {
             return Err(AppError::SqlGeneration(format!(
@@ -150,7 +172,7 @@ impl RisingWaveDDLGenerator {
                    starrocks.mysqlport = '{}',
                    starrocks.httpport = '8030',
                    starrocks.user = '{}',
-                   starrocks.password = '{}',
+                   starrocks.password = secret {},
                    starrocks.database = '{}',
                    starrocks.table = '{}',
                    type = 'upsert',
@@ -162,7 +184,7 @@ impl RisingWaveDDLGenerator {
                 sr_config.host,
                 sr_config.port,
                 sr_config.username,
-                sr_config.password,
+                sr_secret_name,
                 &request.target_database,
                 &request.target_table,
                 schema.primary_keys.join(",")
@@ -177,7 +199,7 @@ impl RisingWaveDDLGenerator {
                    starrocks.mysqlport = '{}',
                    starrocks.httpport = '8030',
                    starrocks.user = '{}',
-                   starrocks.password = '{}',
+                   starrocks.password = secret {},
                    starrocks.database = '{}',
                    starrocks.table = '{}',
                    type = 'upsert',
@@ -188,7 +210,7 @@ impl RisingWaveDDLGenerator {
                 sr_config.host,
                 sr_config.port,
                 sr_config.username,
-                sr_config.password,
+                sr_secret_name,
                 &request.target_database,
                 &request.target_table,
                 schema.primary_keys.join(",")

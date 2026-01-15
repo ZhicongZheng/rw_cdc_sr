@@ -264,9 +264,19 @@ const RisingWaveManager: React.FC = () => {
     {
       title: "操作",
       key: "actions",
-      width: 120,
+      width: 150,
       render: (_: any, record: RwSource) => (
         <Space>
+          {record.definition && (
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => showSqlModal(`Source: ${record.name}`, record.definition!)}
+            >
+              查看
+            </Button>
+          )}
           <Popconfirm
             title="确认删除"
             description={`确定要删除 Source "${record.name}" 吗？`}
@@ -429,9 +439,19 @@ const RisingWaveManager: React.FC = () => {
     {
       title: "操作",
       key: "actions",
-      width: 120,
+      width: 150,
       render: (_: any, record: RwSink) => (
         <Space>
+          {record.definition && (
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => showSqlModal(`Sink: ${record.name}`, record.definition!)}
+            >
+              查看
+            </Button>
+          )}
           <Popconfirm
             title="确认删除"
             description={`确定要删除 Sink "${record.name}" 吗？`}

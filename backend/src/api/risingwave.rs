@@ -43,6 +43,7 @@ pub struct RwSource {
     pub owner: i32,
     pub connector: String,
     pub columns: Vec<String>,
+    pub definition: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -69,7 +70,8 @@ pub struct RwSink {
     pub name: String,
     pub schema_name: String,
     pub owner: i32,
-    pub connector: String
+    pub connector: String,
+    pub definition: Option<String>,
 }
 
 /// 获取 RisingWave 连接池
@@ -127,7 +129,7 @@ pub async fn list_sources(
     let schema = params.schema.unwrap_or_else(|| "public".to_string());
 
     let sources: Vec<RwSource> = sqlx::query(
-        "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.columns::text as columns_text
+        "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.columns::text as columns_text, s.definition
          FROM rw_catalog.rw_sources s
          JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
          WHERE sch.name = $1
@@ -153,6 +155,7 @@ pub async fn list_sources(
             owner: row.get("owner"),
             connector: row.get("connector"),
             columns,
+            definition: row.get("definition"),
         }
     })
     .collect();
@@ -231,7 +234,7 @@ pub async fn list_sinks(
     let schema = params.schema.unwrap_or_else(|| "public".to_string());
 
     let sinks: Vec<RwSink> = sqlx::query(
-        "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector
+        "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.definition
          FROM rw_catalog.rw_sinks s
          JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
          WHERE sch.name = $1
@@ -247,7 +250,7 @@ pub async fn list_sinks(
         schema_name: row.get("schema_name"),
         owner: row.get("owner"),
         connector: row.get("connector"),
-        
+        definition: row.get("definition"),
     })
     .collect();
 

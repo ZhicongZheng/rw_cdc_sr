@@ -419,13 +419,26 @@ impl SyncEngine {
     }
 
     async fn sink_to_starrocks(
-        task_repo: &TaskRepository<'_>, 
-        task_id: i64, 
-        sr_config: &DatabaseConfig, 
-        request: &SyncRequest, 
+        task_repo: &TaskRepository<'_>,
+        task_id: i64,
+        sr_config: &DatabaseConfig,
+        request: &SyncRequest,
         schema: &crate::models::TableSchema,
         rw_pool: &PgPool,
     ) -> Result<()> {
+
+        // 创建 StarRocks SECRET
+        task_repo
+            .add_log(task_id, "info", "Creating secret for StarRocks password...")
+            .await?;
+
+        let sr_secret_ddl = RisingWaveDDLGenerator::generate_starrocks_secret_ddl(sr_config, &request.target_database)?;
+        tracing::debug!("StarRocks Secret DDL: {}", sr_secret_ddl);
+        sqlx::query(&sr_secret_ddl).execute(rw_pool).await.map_err(|e| {
+            tracing::error!("Failed to create StarRocks secret: {}", e);
+            e
+        })?;
+        tracing::info!("Ensured StarRocks secret exists");
 
         task_repo
             .add_log(task_id, "info", "Creating RisingWave sink to StarRocks...")
