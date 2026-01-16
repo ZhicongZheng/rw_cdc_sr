@@ -30,6 +30,8 @@ spec:
               value: "3000"
             - name: RUST_LOG
               value: "info,rw_cdc_sr=debug"
+            - name: LARK_WEBHOOK_URL
+              value: "http://localhost:8080"
           resources:
             requests:
               memory: "256Mi"

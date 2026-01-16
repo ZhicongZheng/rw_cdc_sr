@@ -3,6 +3,7 @@ pub mod metadata;
 pub mod sync;
 pub mod task;
 pub mod risingwave;
+pub mod webhook;
 
 use axum::{
     routing::{get, post, delete, put},
@@ -63,6 +64,10 @@ pub fn create_router(pool: MySqlPool) -> Router {
         .route("/api/risingwave/materialized_views/delete", post(risingwave::delete_materialized_view))
         .route("/api/risingwave/sinks/delete", post(risingwave::delete_sink))
         .route("/api/risingwave/objects/batch_delete", post(risingwave::batch_delete_objects))
+
+        // Webhook 路由 - 用于接收 Alertmanager 告警
+        .route("/api/webhook/alertmanager", post(webhook::receive_alertmanager_webhook))
+        .route("/api/webhook/health", get(webhook::webhook_health))
 
         // CORS 配置
         .layer(CorsLayer::permissive())
