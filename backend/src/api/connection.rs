@@ -78,7 +78,7 @@ pub async fn delete_connection(
 }
 
 /// Axum 错误处理
-pub struct AppError(crate::utils::error::AppError);
+pub struct AppError(pub crate::utils::error::AppError);
 
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {

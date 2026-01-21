@@ -135,8 +135,70 @@ impl TypeMapper {
 
     /// 直接从 MySQL 类型映射到 StarRocks 类型
     pub fn mysql_to_starrocks(mysql_type: &str) -> Result<String> {
-        let rw_type = Self::mysql_to_risingwave(mysql_type)?;
-        Self::risingwave_to_starrocks(&rw_type)
+        let mysql_type_upper = mysql_type.to_uppercase();
+        let base_type = mysql_type_upper.split('(').next().unwrap_or(&mysql_type_upper);
+
+        let sr_type = match base_type {
+            // 整数类型 - 直接映射到 StarRocks 类型
+            "TINYINT" => "TINYINT",
+            "SMALLINT" => "SMALLINT",
+            "MEDIUMINT" => "INT",
+            "INT" | "INTEGER" => "INT",
+            "BIGINT" => "BIGINT",
+
+            // 浮点类型
+            "FLOAT" => "FLOAT",
+            "DOUBLE" | "DOUBLE PRECISION" => "DOUBLE",
+            "DECIMAL" | "NUMERIC" => {
+                // 保留精度和小数位数
+                if mysql_type.contains('(') {
+                    return Ok(mysql_type.to_uppercase());
+                }
+                "DECIMAL"
+            }
+
+            // 字符串类型
+            "CHAR" => {
+                if mysql_type.contains('(') {
+                    return Ok(mysql_type.to_uppercase());
+                }
+                "CHAR"
+            }
+            "VARCHAR" => {
+                if mysql_type.contains('(') {
+                    return Ok(mysql_type.to_uppercase());
+                }
+                "VARCHAR"
+            }
+            "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" => "STRING",
+
+            // 二进制类型
+            "BINARY" | "VARBINARY" | "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" => "VARBINARY",
+
+            // 日期时间类型
+            "DATE" => "DATE",
+            "TIME" => "TIME",
+            "DATETIME" | "TIMESTAMP" => "DATETIME",
+            "YEAR" => "SMALLINT",
+
+            // JSON 类型
+            "JSON" => "JSON",
+
+            // 其他类型
+            "BOOLEAN" | "BOOL" => "BOOLEAN",
+            "BIT" => "BOOLEAN",
+            "ENUM" => "VARCHAR(255)", // ENUM 转换为 VARCHAR
+            "SET" => "STRING",         // SET 转换为 STRING
+
+            _ => {
+                return Err(AppError::TypeMapping(format!(
+                    "Unsupported MySQL type: {}",
+                    mysql_type
+                )))
+            }
+        };
+
+        Ok(sr_type.to_string())
     }
 }
 
@@ -193,6 +255,34 @@ mod tests {
         assert_eq!(
             TypeMapper::mysql_to_starrocks("TEXT").unwrap(),
             "STRING"
+        );
+        // 测试 TINYINT 直接映射
+        assert_eq!(
+            TypeMapper::mysql_to_starrocks("TINYINT").unwrap(),
+            "TINYINT"
+        );
+        assert_eq!(
+            TypeMapper::mysql_to_starrocks("SMALLINT").unwrap(),
+            "SMALLINT"
+        );
+        assert_eq!(
+            TypeMapper::mysql_to_starrocks("BIGINT").unwrap(),
+            "BIGINT"
+        );
+    }
+
+    #[test]
+    fn test_mysql_tinyint_mapping() {
+        // 重点测试 TINYINT 的映射
+        // MySQL TINYINT -> RisingWave SMALLINT
+        assert_eq!(
+            TypeMapper::mysql_to_risingwave("TINYINT").unwrap(),
+            "SMALLINT"
+        );
+        // MySQL TINYINT -> StarRocks TINYINT (直接映射)
+        assert_eq!(
+            TypeMapper::mysql_to_starrocks("TINYINT").unwrap(),
+            "TINYINT"
         );
     }
 }

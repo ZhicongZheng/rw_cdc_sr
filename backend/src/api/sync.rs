@@ -21,15 +21,13 @@ pub async fn sync_multiple_tables(
     State(pool): State<MySqlPool>,
     Json(requests): Json<Vec<SyncRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let engine = SyncEngine::new(pool);
-    let mut task_ids = Vec::new();
-
-    for request in requests {
-        let task_id = engine.sync_table(request).await?;
-        task_ids.push(task_id);
+    if requests.is_empty() {
+        return Err(AppError(crate::utils::error::AppError::Validation("No tables to sync".to_string())));
     }
 
-    Ok(Json(json!({ "task_ids": task_ids })))
+    let engine = SyncEngine::new(pool);
+    let task_id = engine.sync_multiple_tables(requests).await?;
+    Ok(Json(json!({ "task_id": task_id })))
 }
 
 /// 获取同步进度

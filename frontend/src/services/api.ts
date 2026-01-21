@@ -165,12 +165,12 @@ export const syncSingleTable = async (request: SyncRequest): Promise<number> => 
 
 export const syncMultipleTables = async (
   request: SyncRequest[]
-): Promise<number[]> => {
-  const result = await apiFetch<{ task_ids: number[] }>('/api/sync/multiple', {
+): Promise<number> => {
+  const result = await apiFetch<{ task_id: number }>('/api/sync/multiple', {
     method: 'POST',
     body: JSON.stringify(request),
   });
-  return result.task_ids;
+  return result.task_id;
 };
 
 export const getSyncProgress = async (taskId: number): Promise<SyncProgress> => {

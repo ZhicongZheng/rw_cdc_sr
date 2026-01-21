@@ -12,36 +12,13 @@ impl StarRocksDDLGenerator {
         target_database: &str,
         target_table: &str,
     ) -> Result<String> {
-        let mut column_defs = Vec::new();
-
-        for col in &schema.columns {
-            // 将 MySQL 类型转换为 StarRocks 类型
-            let sr_type = TypeMapper::mysql_to_starrocks(&col.data_type)?;
-            let nullable = if col.is_nullable {
-                " NULL"
-            } else {
-                " NOT NULL"
-            };
-
-            let comment = if let Some(ref comment) = col.comment {
-                format!(" COMMENT '{}'", comment.replace('\'', "''"))
-            } else {
-                String::new()
-            };
-
-            column_defs.push(format!(
-                "  `{}` {}{}{}",
-                col.name, sr_type, nullable, comment
-            ));
-        }
-
-        // 构建主键
-        let primary_key = if !schema.primary_keys.is_empty() {
-            format!("PRIMARY KEY({})", schema.primary_keys.join(", "))
+        // 确定主键列
+        let pk_columns = if !schema.primary_keys.is_empty() {
+            schema.primary_keys.clone()
         } else {
             // StarRocks 需要主键，如果没有主键，使用第一列
             if !schema.columns.is_empty() {
-                format!("PRIMARY KEY({})", schema.columns[0].name)
+                vec![schema.columns[0].name.clone()]
             } else {
                 return Err(crate::utils::error::AppError::SqlGeneration(
                     "Table has no columns".to_string(),
@@ -49,16 +26,63 @@ impl StarRocksDDLGenerator {
             }
         };
 
+        let mut column_defs = Vec::new();
+        let mut non_pk_columns = Vec::new();
+
+        // 先处理主键列，放到最前面
+        for pk_col_name in &pk_columns {
+            if let Some(col) = schema.columns.iter().find(|c| &c.name == pk_col_name) {
+                let sr_type = TypeMapper::mysql_to_starrocks(&col.data_type)?;
+                let nullable = if col.is_nullable {
+                    " NULL"
+                } else {
+                    " NOT NULL"
+                };
+
+                let comment = if let Some(ref comment) = col.comment {
+                    format!(" COMMENT '{}'", comment.replace('\'', "''"))
+                } else {
+                    String::new()
+                };
+
+                column_defs.push(format!(
+                    "  `{}` {}{}{}",
+                    col.name, sr_type, nullable, comment
+                ));
+            }
+        }
+
+        // 再处理非主键列
+        for col in &schema.columns {
+            if !pk_columns.contains(&col.name) {
+                let sr_type = TypeMapper::mysql_to_starrocks(&col.data_type)?;
+                let nullable = if col.is_nullable {
+                    " NULL"
+                } else {
+                    " NOT NULL"
+                };
+
+                let comment = if let Some(ref comment) = col.comment {
+                    format!(" COMMENT '{}'", comment.replace('\'', "''"))
+                } else {
+                    String::new()
+                };
+
+                non_pk_columns.push(format!(
+                    "  `{}` {}{}{}",
+                    col.name, sr_type, nullable, comment
+                ));
+            }
+        }
+
+        // 合并主键列和非主键列
+        column_defs.extend(non_pk_columns);
+
+        // 构建主键
+        let primary_key = format!("PRIMARY KEY({})", pk_columns.join(", "));
+
         // 确定 DISTRIBUTED BY HASH 的列
-        let hash_column = if !schema.primary_keys.is_empty() {
-            schema.primary_keys[0].clone()
-        } else if !schema.columns.is_empty() {
-            schema.columns[0].name.clone()
-        } else {
-            return Err(crate::utils::error::AppError::SqlGeneration(
-                "Cannot determine hash column".to_string(),
-            ));
-        };
+        let hash_column = pk_columns[0].clone();
 
         let ddl = format!(
             r#"CREATE TABLE IF NOT EXISTS `{}`.`{}` (
@@ -160,6 +184,118 @@ mod tests {
     #[test]
     fn test_generate_drop_table_ddl() {
         let ddl = StarRocksDDLGenerator::generate_drop_table_ddl("test_db", "users");
-        assert_eq!(ddl, "DROP TABLE IF NOT EXISTS `test_db`.`users`;");
+        assert_eq!(ddl, "DROP TABLE IF EXISTS `test_db`.`users`;");
+    }
+
+    #[test]
+    fn test_primary_key_columns_first() {
+        // 测试主键字段是否在最前面
+        let schema = TableSchema {
+            database: "test_db".to_string(),
+            table_name: "orders".to_string(),
+            columns: vec![
+                Column {
+                    name: "created_at".to_string(),
+                    data_type: "DATETIME".to_string(),
+                    is_nullable: false,
+                    default_value: None,
+                    comment: None,
+                    character_maximum_length: None,
+                    numeric_precision: None,
+                    numeric_scale: None,
+                },
+                Column {
+                    name: "order_id".to_string(),
+                    data_type: "BIGINT".to_string(),
+                    is_nullable: false,
+                    default_value: None,
+                    comment: Some("Order ID".to_string()),
+                    character_maximum_length: None,
+                    numeric_precision: Some(20),
+                    numeric_scale: Some(0),
+                },
+                Column {
+                    name: "user_id".to_string(),
+                    data_type: "BIGINT".to_string(),
+                    is_nullable: false,
+                    default_value: None,
+                    comment: None,
+                    character_maximum_length: None,
+                    numeric_precision: Some(20),
+                    numeric_scale: Some(0),
+                },
+                Column {
+                    name: "amount".to_string(),
+                    data_type: "DECIMAL(10,2)".to_string(),
+                    is_nullable: false,
+                    default_value: None,
+                    comment: None,
+                    character_maximum_length: None,
+                    numeric_precision: Some(10),
+                    numeric_scale: Some(2),
+                },
+            ],
+            primary_keys: vec!["order_id".to_string(), "user_id".to_string()],
+            indexes: vec![],
+        };
+
+        let ddl = StarRocksDDLGenerator::generate_table_ddl(&schema, "target_db", "orders").unwrap();
+
+        // 验证主键字段在最前面
+        let lines: Vec<&str> = ddl.lines().collect();
+        // 第一个字段应该是 order_id
+        assert!(lines.iter().any(|line| line.contains("`order_id` BIGINT NOT NULL COMMENT 'Order ID'")));
+        // 第二个字段应该是 user_id
+        assert!(lines.iter().any(|line| line.contains("`user_id` BIGINT NOT NULL")));
+
+        // 验证 DDL 中字段的顺序
+        let order_id_pos = ddl.find("`order_id`").unwrap();
+        let user_id_pos = ddl.find("`user_id`").unwrap();
+        let created_at_pos = ddl.find("`created_at`").unwrap();
+        let amount_pos = ddl.find("`amount`").unwrap();
+
+        // 主键字段应该在非主键字段之前
+        assert!(order_id_pos < created_at_pos);
+        assert!(order_id_pos < amount_pos);
+        assert!(user_id_pos < created_at_pos);
+        assert!(user_id_pos < amount_pos);
+    }
+
+    #[test]
+    fn test_mysql_tinyint_to_starrocks_tinyint() {
+        // 测试 MySQL TINYINT 正确映射到 StarRocks TINYINT
+        let schema = TableSchema {
+            database: "test_db".to_string(),
+            table_name: "users".to_string(),
+            columns: vec![
+                Column {
+                    name: "id".to_string(),
+                    data_type: "INT".to_string(),
+                    is_nullable: false,
+                    default_value: None,
+                    comment: None,
+                    character_maximum_length: None,
+                    numeric_precision: Some(10),
+                    numeric_scale: Some(0),
+                },
+                Column {
+                    name: "active".to_string(),
+                    data_type: "TINYINT".to_string(),
+                    is_nullable: false,
+                    default_value: None,
+                    comment: None,
+                    character_maximum_length: None,
+                    numeric_precision: Some(3),
+                    numeric_scale: Some(0),
+                },
+            ],
+            primary_keys: vec!["id".to_string()],
+            indexes: vec![],
+        };
+
+        let ddl = StarRocksDDLGenerator::generate_table_ddl(&schema, "target_db", "users").unwrap();
+
+        // 验证 TINYINT 类型被正确映射
+        assert!(ddl.contains("`active` TINYINT NOT NULL"));
     }
 }

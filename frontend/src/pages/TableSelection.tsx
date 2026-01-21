@@ -157,8 +157,8 @@ const TableSelection: React.FC = () => {
             options: syncOptions,
           }
         });
-        const taskIds = await api.syncMultipleTables(request);
-        message.success(`批量同步任务已创建！共 ${taskIds.length} 个任务`);
+        const taskId = await api.syncMultipleTables(request);
+        message.success(`批量同步任务已创建！任务 ID: ${taskId}`);
       }
 
       // 重置表单
