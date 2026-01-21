@@ -68,9 +68,18 @@ const TableSelection: React.FC = () => {
       setRwConnections(rwConns);
       setSrConnections(srConns);
 
-      // 如果有 StarRocks 连接，自动设置第一个连接的数据库名作为批量目标数据库默认值
-      if (srConns.length > 0 && srConns[0].database_name) {
-        setBatchTargetDatabase(srConns[0].database_name);
+      // 自动选择第一个 RisingWave 连接
+      if (rwConns.length > 0) {
+        setSelectedRwId(rwConns[0].id);
+      }
+
+      // 自动选择第一个 StarRocks 连接
+      if (srConns.length > 0) {
+        setSelectedSrId(srConns[0].id);
+        // 如果有 StarRocks 连接，自动设置第一个连接的数据库名作为批量目标数据库默认值
+        if (srConns[0].database_name) {
+          setBatchTargetDatabase(srConns[0].database_name);
+        }
       }
     } catch (error) {
       message.error("加载连接配置失败: " + error);
@@ -421,6 +430,16 @@ const TableSelection: React.FC = () => {
         {/* 步骤 2: 选择 RisingWave 和 StarRocks 连接 */}
         {currentStep === 1 && (
           <Space direction="vertical" style={{ width: "100%" }} size="large">
+            {selectedRwId && selectedSrId && (
+              <Alert
+                message="已自动选择连接"
+                description="系统已自动选择第一个 RisingWave 和 StarRocks 连接，如需更改请在下方重新选择。"
+                type="success"
+                showIcon
+                closable
+              />
+            )}
+
             <Card title="选择 RisingWave 连接" size="small">
               <Select
                 style={{ width: "100%" }}

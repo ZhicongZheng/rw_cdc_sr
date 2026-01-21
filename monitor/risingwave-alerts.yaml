@@ -1,0 +1,277 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: risingwave-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+    app: risingwave-alerts
+spec:
+  groups:
+    # 节点健康监控
+    - name: risingwave-node-health
+      rules:
+        # 检测任何 RisingWave 节点不在线
+        - alert: RisingWaveNodeDown
+          expr: up{job=~"risingwave-compute|risingwave-meta|risingwave-frontend|risingwave-compactor"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: node-health
+          annotations:
+            summary: "RisingWave 节点 {{ $labels.instance }} ({{ $labels.job }}) 不在线"
+            description: "RisingWave {{ $labels.job }} 节点 {{ $labels.instance }} 已离线超过 2 分钟"
+
+    # 计算节点错误监控
+    - name: risingwave-compute-errors
+      rules:
+         # 检测计算节点执行错误
+        - alert: RisingWaveComputeError
+          expr: (rate(user_compute_error_cnt[5m]) > 0) or (rate(user_compute_error[5m]) > 0)
+          for: 5m
+          labels:
+            severity: warning
+            component: compute
+          annotations:
+            summary: "计算节点出现执行错误: {{ $labels.executor_name }}"
+            description: "计算节点 {{ $labels.instance }} 在片段 {{ $labels.fragment_id }} 上检测到错误类型 {{ $labels.error_type }}"
+
+        # 计算节点严重错误
+        - alert: RisingWaveComputeCriticalError
+          expr: (rate(user_compute_error_cnt[5m]) > 5) or (rate(user_compute_error[5m]) > 5)
+          for: 2m
+          labels:
+            severity: critical
+            component: compute
+          annotations:
+            summary: "计算节点严重错误: 错误率过高"
+            description: "计算节点 {{ $labels.instance }} 错误率超过 5 次/5分钟，需要立即关注"
+
+    # Source/Sink 监控
+    - name: risingwave-source-sink-errors
+      rules:
+        # 检测 Sink 错误
+        - alert: RisingWaveSinkError
+          expr: rate(user_sink_error[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: sink
+          annotations:
+            summary: "Sink 写入错误: {{ $labels.sink_name }}"
+            description: "Sink {{ $labels.sink_id }} ({{ $labels.sink_name }}) 在片段 {{ $labels.fragment_id }} 上出现错误类型 {{ $labels.error_type }}"
+
+        # Sink 严重错误
+        - alert: RisingWaveSinkCriticalError
+          expr: rate(user_sink_error[5m]) > 10
+          for: 2m
+          labels:
+            severity: critical
+            component: sink
+          annotations:
+            summary: "Sink 严重错误: {{ $labels.sink_name }}"
+            description: "Sink {{ $labels.sink_id }} ({{ $labels.sink_name }}) 错误率超过 10 次/5分钟，数据写入可能受阻"
+
+        # 检测 Source 错误（包括 CDC）
+        - alert: RisingWaveSourceError
+          expr: rate(user_source_error[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: source
+          annotations:
+            summary: "Source 读取错误: {{ $labels.source_name }}"
+            description: "Source {{ $labels.source_id }} ({{ $labels.source_name }}) 在片段 {{ $labels.fragment_id }} 上出现错误类型 {{ $labels.error_type }}"
+
+        # Source 严重错误（包括 CDC）
+        - alert: RisingWaveSourceCriticalError
+          expr: rate(user_source_error[5m]) > 10
+          for: 2m
+          labels:
+            severity: critical
+            component: source
+          annotations:
+            summary: "Source 严重错误: {{ $labels.source_name }}"
+            description: "Source {{ $labels.source_id }} ({{ $labels.source_name }}) 错误率超过 10 次/5分钟，数据读取可能中断"
+
+        # Source/Sink 不在线
+        - alert: RisingWaveSourceDown
+          expr: source_status_is_up == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: source
+          annotations:
+            summary: "Source 不可用: {{ $labels.source_name }}"
+            description: "Source {{ $labels.source_id }} ({{ $labels.source_name }}) 已停止运行"
+
+    # CDC 引擎重启监控
+    - name: risingwave-cdc-restart
+      rules:
+        # 通过监控节点重启次数检测 CDC 引擎重启
+        - alert: RisingWavePodRestarted
+          expr: increase(kube_pod_container_status_restarts_total{namespace=~".*",container=~"compute|meta"}[1h]) > 0
+          for: 1m
+          labels:
+            severity: warning
+            component: pod-health
+          annotations:
+            summary: "RisingWave Pod 重启: {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} 在 namespace {{ $labels.namespace }} 中的容器 {{ $labels.container }} 已重启，重启次数: {{ $value }}"
+
+    # Barrier 监控
+    - name: risingwave-barrier
+      rules:
+        # Barrier 延迟过高
+        - alert: RisingWaveBarrierLatencyHigh
+          expr: histogram_quantile(0.99, sum(rate(meta_barrier_duration_seconds_bucket[5m])) by (le, database_id)) > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: barrier
+          annotations:
+            summary: "Barrier 延迟过高"
+            description: "Database {{ $labels.database_id }} 的 Barrier P99 延迟达到 {{ $value }}秒，可能影响数据实时性"
+
+        # Barrier 延迟严重过高
+        - alert: RisingWaveBarrierLatencyCritical
+          expr: histogram_quantile(0.99, sum(rate(meta_barrier_duration_seconds_bucket[5m])) by (le, database_id)) > 30
+          for: 2m
+          labels:
+            severity: critical
+            component: barrier
+          annotations:
+            summary: "Barrier 延迟严重过高"
+            description: "Database {{ $labels.database_id }} 的 Barrier P99 延迟达到 {{ $value }}秒，数据处理严重滞后"
+
+        # Barrier 堆积过多
+        - alert: RisingWaveBarrierBacklog
+          expr: all_barrier_nums >= 200
+          for: 5m
+          labels:
+            severity: warning
+            component: barrier
+          annotations:
+            summary: "Barrier 堆积过多"
+            description: "节点 {{ $labels.instance }} 的 Barrier 堆积数量达到 {{ $value }}，可能导致内存压力"
+
+        # Barrier 停滞
+        - alert: RisingWaveBarrierStalled
+          expr: (timestamp(last_committed_barrier_time) - last_committed_barrier_time) > 300
+          for: 2m
+          labels:
+            severity: critical
+            component: barrier
+          annotations:
+            summary: "Barrier 停滞"
+            description: "节点 {{ $labels.instance }} 的 Barrier 已经 {{ $value }}秒未提交，流处理可能已停止"
+
+    # Recovery 监控
+    - name: risingwave-recovery
+      rules:
+        # 恢复失败 - 使用 changes() 检测实际失败次数
+        - alert: RisingWaveRecoveryFailure
+          expr: changes(recovery_failure_cnt[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: recovery
+          annotations:
+            summary: "集群恢复失败"
+            description: "节点 {{ $labels.instance }} 的 {{ $labels.recovery_type }} 在过去 5 分钟内发生了 {{ $value }} 次恢复失败"
+
+        # 恢复延迟过高
+        - alert: RisingWaveRecoveryLatencyHigh
+          expr: histogram_quantile(0.99, sum(rate(recovery_latency_bucket[5m])) by (le, instance, recovery_type)) > 30
+          for: 2m
+          labels:
+            severity: warning
+            component: recovery
+          annotations:
+            summary: "恢复延迟过高"
+            description: "节点 {{ $labels.instance }} 的 {{ $labels.recovery_type }} 恢复 P99 延迟达到 {{ $value }}秒"
+
+        # 频繁恢复
+        - alert: RisingWaveFrequentRecovery
+          expr: rate(recovery_latency_count[10m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: recovery
+          annotations:
+            summary: "集群频繁恢复"
+            description: "节点 {{ $labels.instance }} 的 {{ $labels.recovery_type }} 在过去10分钟内频繁恢复，恢复速率: {{ $value }}/秒"
+
+    # 资源使用率监控
+    - name: risingwave-resource-usage
+      rules:
+        # CPU 使用率过高 - 只监控有效的 core_num > 0 的节点
+        - alert: RisingWaveCPUUsageHigh
+          expr: |
+            (
+              sum(rate(process_cpu_seconds_total{job=~"risingwave-compute|risingwave-meta|risingwave-frontend|risingwave-compactor"}[5m])) by (job, instance)
+              /
+              avg(process_cpu_core_num{job=~"risingwave-compute|risingwave-meta|risingwave-frontend|risingwave-compactor"} > 0) by (job, instance)
+            ) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            component: resource
+          annotations:
+            summary: "CPU 使用率过高"
+            description: "节点 {{ $labels.instance }} ({{ $labels.job }}) 的 CPU 使用率达到 {{ $value | humanizePercentage }}，可能影响处理能力"
+
+        # CPU 使用率严重过高 - 只监控有效的 core_num > 0 的节点
+        - alert: RisingWaveCPUUsageCritical
+          expr: |
+            (
+              sum(rate(process_cpu_seconds_total{job=~"risingwave-compute|risingwave-meta|risingwave-frontend|risingwave-compactor"}[5m])) by (job, instance)
+              /
+              avg(process_cpu_core_num{job=~"risingwave-compute|risingwave-meta|risingwave-frontend|risingwave-compactor"} > 0) by (job, instance)
+            ) > 0.95
+          for: 5m
+          labels:
+            severity: critical
+            component: resource
+          annotations:
+            summary: "CPU 使用率严重过高"
+            description: "节点 {{ $labels.instance }} ({{ $labels.job }}) 的 CPU 使用率达到 {{ $value | humanizePercentage }}，处理能力接近饱和"
+
+        # 容器内存使用率过高
+        - alert: RisingWaveContainerMemoryUsageHigh
+          expr: |
+            (avg by(namespace, pod) (container_memory_working_set_bytes{container=~"compute|meta|frontend|compactor"})
+            / sum by(namespace, pod) (kube_pod_container_resource_limits{container=~"compute|meta|frontend|compactor", resource="memory", unit="byte"})) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            component: resource
+          annotations:
+            summary: "容器内存使用率过高"
+            description: "Pod {{ $labels.pod }} (Namespace: {{ $labels.namespace }}) 的内存使用率达到 {{ $value | humanizePercentage }}，可能面临 OOM 风险"
+
+        # 容器内存使用率严重过高
+        - alert: RisingWaveContainerMemoryUsageCritical
+          expr: |
+            (avg by(namespace, pod) (container_memory_working_set_bytes{container=~"compute|meta|frontend|compactor"})
+            / sum by(namespace, pod) (kube_pod_container_resource_limits{container=~"compute|meta|frontend|compactor", resource="memory", unit="byte"})) > 0.95
+          for: 5m
+          labels:
+            severity: critical
+            component: resource
+          annotations:
+            summary: "容器内存使用率严重过高"
+            description: "Pod {{ $labels.pod }} (Namespace: {{ $labels.namespace }}) 的内存使用率达到 {{ $value | humanizePercentage }}，即将触发 OOM"
+
+        # 容器 CPU 使用率过高
+        - alert: RisingWaveContainerCPUUsageHigh
+          expr: |
+            (sum(rate(container_cpu_usage_seconds_total{container=~"compute|meta|frontend|compactor"}[5m])) by (namespace, pod)
+            / sum(kube_pod_container_resource_limits{container=~"compute|meta|frontend|compactor", resource="cpu"}) by (namespace, pod)) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            component: resource
+          annotations:
+            summary: "容器 CPU 使用率过高"
+            description: "Pod {{ $labels.pod }} (Namespace: {{ $labels.namespace }}) 的 CPU 使用率达到 {{ $value | humanizePercentage }}"
