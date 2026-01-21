@@ -139,8 +139,10 @@ impl TypeMapper {
         let base_type = mysql_type_upper.split('(').next().unwrap_or(&mysql_type_upper);
 
         let sr_type = match base_type {
-            // 整数类型 - 直接映射到 StarRocks 类型
-            "TINYINT" => "TINYINT",
+            // 整数类型 - 为了与 RisingWave 兼容，TINYINT 也映射为 SMALLINT
+            // 因为 RisingWave 会将 MySQL TINYINT 映射为 SMALLINT (Int16)
+            // 如果 StarRocks 使用 TINYINT，创建 Sink 时会报类型不匹配错误
+            "TINYINT" => "SMALLINT",  // 改为 SMALLINT 以匹配 RisingWave
             "SMALLINT" => "SMALLINT",
             "MEDIUMINT" => "INT",
             "INT" | "INTEGER" => "INT",
@@ -256,10 +258,10 @@ mod tests {
             TypeMapper::mysql_to_starrocks("TEXT").unwrap(),
             "STRING"
         );
-        // 测试 TINYINT 直接映射
+        // 测试 TINYINT 映射为 SMALLINT（为了与 RisingWave 兼容）
         assert_eq!(
             TypeMapper::mysql_to_starrocks("TINYINT").unwrap(),
-            "TINYINT"
+            "SMALLINT"
         );
         assert_eq!(
             TypeMapper::mysql_to_starrocks("SMALLINT").unwrap(),
@@ -279,10 +281,10 @@ mod tests {
             TypeMapper::mysql_to_risingwave("TINYINT").unwrap(),
             "SMALLINT"
         );
-        // MySQL TINYINT -> StarRocks TINYINT (直接映射)
+        // MySQL TINYINT -> StarRocks SMALLINT (为了与 RisingWave 兼容)
         assert_eq!(
             TypeMapper::mysql_to_starrocks("TINYINT").unwrap(),
-            "TINYINT"
+            "SMALLINT"
         );
     }
 }

@@ -154,13 +154,6 @@ impl RisingWaveDDLGenerator {
             if base_type == "TIMESTAMP" || base_type == "DATETIME" {
                 needs_type_conversion = true;
                 select_columns.push(format!("{}::TIMESTAMP as {}", col.name, col.name));
-            }
-            // MySQL TINYINT -> RisingWave SMALLINT -> StarRocks TINYINT
-            // 需要转换回 TINYINT，使用 CAST 到 INT2（即 SMALLINT，但在 StarRocks 中会被识别为 TINYINT）
-            else if base_type == "TINYINT" {
-                needs_type_conversion = true;
-                // 使用 CAST 确保类型正确
-                select_columns.push(format!("CAST({} AS SMALLINT) as {}", col.name, col.name));
             } else {
                 select_columns.push(col.name.clone());
             }

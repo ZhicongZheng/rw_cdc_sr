@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_mysql_tinyint_to_starrocks_tinyint() {
-        // 测试 MySQL TINYINT 正确映射到 StarRocks TINYINT
+        // 测试 MySQL TINYINT 映射到 StarRocks SMALLINT（为了与 RisingWave 兼容）
         let schema = TableSchema {
             database: "test_db".to_string(),
             table_name: "users".to_string(),
@@ -295,7 +295,7 @@ mod tests {
 
         let ddl = StarRocksDDLGenerator::generate_table_ddl(&schema, "target_db", "users").unwrap();
 
-        // 验证 TINYINT 类型被正确映射
-        assert!(ddl.contains("`active` TINYINT NOT NULL"));
+        // 验证 TINYINT 类型被映射为 SMALLINT（为了与 RisingWave 兼容）
+        assert!(ddl.contains("`active` SMALLINT NOT NULL"));
     }
 }
