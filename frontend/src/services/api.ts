@@ -321,3 +321,25 @@ export const batchDeleteRwObjects = async (
     }
   );
 };
+
+export interface CreateSinkRequest {
+  rw_config_id: number;
+  sr_config_id: number;
+  schema: string;
+  source_object: string;  // table name or materialized view name
+  source_type: string;     // "table" or "materialized_view"
+  target_database: string;
+  target_table: string;
+}
+
+export const createRwSink = async (
+  request: CreateSinkRequest
+): Promise<{ success: boolean; message: string }> => {
+  return apiFetch<{ success: boolean; message: string }>(
+    '/api/risingwave/sinks/create',
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }
+  );
+};

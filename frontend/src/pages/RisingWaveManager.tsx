@@ -12,8 +12,10 @@ import {
   Button,
   Modal,
   Popconfirm,
+  Form,
+  Input,
 } from "antd";
-import { EyeOutlined, CopyOutlined, DeleteOutlined } from "@ant-design/icons";
+import { EyeOutlined, CopyOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import * as api from "../services/api";
 import type {
@@ -54,6 +56,16 @@ const RisingWaveManager: React.FC = () => {
   const [selectedMvKeys, setSelectedMvKeys] = useState<React.Key[]>([]);
   const [selectedSinkKeys, setSelectedSinkKeys] = useState<React.Key[]>([]);
 
+  // Create Sink modal states
+  const [createSinkModalVisible, setCreateSinkModalVisible] = useState(false);
+  const [createSinkLoading, setCreateSinkLoading] = useState(false);
+  const [srConnections, setSrConnections] = useState<DatabaseConfig[]>([]);
+  const [sinkForm] = Form.useForm();
+  const [currentSinkSource, setCurrentSinkSource] = useState<{
+    name: string;
+    type: 'table' | 'materialized_view';
+  } | null>(null);
+
   // Load RisingWave connections on mount
   useEffect(() => {
     loadConnections();
@@ -77,7 +89,11 @@ const RisingWaveManager: React.FC = () => {
     try {
       const conns = await api.getAllConnections();
       const rwConns = conns.filter((c) => c.db_type === "risingwave");
+      const srConns = conns.filter((c) => c.db_type === "starrocks");
+
       setRwConnections(rwConns);
+      setSrConnections(srConns);
+
       if (rwConns.length > 0) {
         setSelectedRwId(rwConns[0].id);
       }
@@ -226,6 +242,54 @@ const RisingWaveManager: React.FC = () => {
     }
   };
 
+  // Show Create Sink modal
+  const showCreateSinkModal = (objectName: string, objectType: 'table' | 'materialized_view') => {
+    setCurrentSinkSource({ name: objectName, type: objectType });
+    setCreateSinkModalVisible(true);
+
+    // 预填充表单：默认选择第一个 StarRocks 连接
+    if (srConnections.length > 0) {
+      const firstSr = srConnections[0];
+      sinkForm.setFieldsValue({
+        sr_config_id: firstSr.id,
+        target_database: firstSr.database_name || '',
+        target_table: objectName, // 默认使用相同的表名
+      });
+    }
+  };
+
+  // Handle Create Sink
+  const handleCreateSink = async () => {
+    if (!selectedRwId || !selectedSchema || !currentSinkSource) return;
+
+    try {
+      const values = await sinkForm.validateFields();
+      setCreateSinkLoading(true);
+
+      const request: api.CreateSinkRequest = {
+        rw_config_id: selectedRwId,
+        sr_config_id: values.sr_config_id,
+        schema: selectedSchema,
+        source_object: currentSinkSource.name,
+        source_type: currentSinkSource.type,
+        target_database: values.target_database,
+        target_table: values.target_table,
+      };
+
+      const result = await api.createRwSink(request);
+      message.success(result.message || 'Sink 创建成功');
+
+      setCreateSinkModalVisible(false);
+      sinkForm.resetFields();
+      setCurrentSinkSource(null);
+      loadAllObjects(); // 刷新列表
+    } catch (error) {
+      message.error("创建 Sink 失败: " + error);
+    } finally {
+      setCreateSinkLoading(false);
+    }
+  };
+
   // Table columns definitions
   const sourceColumns: ColumnsType<RwSource> = [
     {
@@ -318,7 +382,7 @@ const RisingWaveManager: React.FC = () => {
     {
       title: "操作",
       key: "actions",
-      width: 150,
+      width: 220,
       render: (_: any, record: RwTable) => (
         <Space>
           {record.definition && (
@@ -331,6 +395,14 @@ const RisingWaveManager: React.FC = () => {
               查看
             </Button>
           )}
+          <Button
+            type="link"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => showCreateSinkModal(record.name, 'table')}
+          >
+            创建 Sink
+          </Button>
           <Popconfirm
             title="确认删除"
             description={`确定要删除 Table "${record.name}" 吗？`}
@@ -372,7 +444,7 @@ const RisingWaveManager: React.FC = () => {
     {
       title: "操作",
       key: "actions",
-      width: 150,
+      width: 220,
       render: (_: any, record: RwMaterializedView) => (
         <Space>
           {record.definition && (
@@ -387,6 +459,14 @@ const RisingWaveManager: React.FC = () => {
               查看
             </Button>
           )}
+          <Button
+            type="link"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => showCreateSinkModal(record.name, 'materialized_view')}
+          >
+            创建 Sink
+          </Button>
           <Popconfirm
             title="确认删除"
             description={`确定要删除 Materialized View "${record.name}" 吗？`}
@@ -671,6 +751,56 @@ const RisingWaveManager: React.FC = () => {
         >
           {sqlModalContent}
         </Paragraph>
+      </Modal>
+
+      {/* Create Sink Modal */}
+      <Modal
+        title={`创建 Sink 到 StarRocks - ${currentSinkSource?.type === 'table' ? '表' : '物化视图'}: ${currentSinkSource?.name}`}
+        open={createSinkModalVisible}
+        onCancel={() => {
+          setCreateSinkModalVisible(false);
+          sinkForm.resetFields();
+          setCurrentSinkSource(null);
+        }}
+        onOk={handleCreateSink}
+        confirmLoading={createSinkLoading}
+        width={600}
+      >
+        <Form
+          form={sinkForm}
+          layout="vertical"
+          style={{ marginTop: 24 }}
+        >
+          <Form.Item
+            label="StarRocks 连接"
+            name="sr_config_id"
+            rules={[{ required: true, message: "请选择 StarRocks 连接" }]}
+          >
+            <Select placeholder="选择 StarRocks 连接">
+              {srConnections.map((conn) => (
+                <Select.Option key={conn.id} value={conn.id}>
+                  {conn.name} ({conn.host}:{conn.port})
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="目标数据库"
+            name="target_database"
+            rules={[{ required: true, message: "请输入目标数据库名称" }]}
+          >
+            <Input placeholder="输入目标数据库名称" />
+          </Form.Item>
+
+          <Form.Item
+            label="目标表名"
+            name="target_table"
+            rules={[{ required: true, message: "请输入目标表名称" }]}
+          >
+            <Input placeholder="输入目标表名称" />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

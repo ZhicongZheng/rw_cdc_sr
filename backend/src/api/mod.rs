@@ -64,6 +64,7 @@ pub fn create_router(pool: MySqlPool) -> Router {
         .route("/api/risingwave/materialized_views/delete", post(risingwave::delete_materialized_view))
         .route("/api/risingwave/sinks/delete", post(risingwave::delete_sink))
         .route("/api/risingwave/objects/batch_delete", post(risingwave::batch_delete_objects))
+        .route("/api/risingwave/sinks/create", post(risingwave::create_sink))
 
         // Webhook 路由 - 用于接收 Alertmanager 告警
         .route("/api/webhook/alertmanager", post(webhook::receive_alertmanager_webhook))

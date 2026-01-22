@@ -5,9 +5,12 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
+use mysql_async::prelude::*;
 
 use super::connection::AppError;
 use crate::db::ConfigRepository;
+use crate::models::{TableSchema, Column};
+use crate::generators::{RisingWaveDDLGenerator, StarRocksDDLGenerator};
 
 #[derive(Deserialize)]
 pub struct RwObjectQuery {
@@ -28,6 +31,17 @@ pub struct BatchDeleteObjectRequest {
     pub schema: String,
     pub object_type: String,  // "source", "table", "materialized_view", "sink"
     pub names: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct CreateSinkRequest {
+    pub rw_config_id: i64,
+    pub sr_config_id: i64,
+    pub schema: String,
+    pub source_object: String,  // table name or materialized view name
+    pub source_type: String,     // "table" or "materialized_view"
+    pub target_database: String,
+    pub target_table: String,
 }
 
 #[derive(Serialize)]
@@ -361,4 +375,270 @@ pub async fn batch_delete_objects(
         "total_count": request.names.len(),
         "failed": failed,
     })))
+}
+
+/// 从 RisingWave 获取表或物化视图的 schema
+async fn get_rw_table_schema(
+    rw_pool: &PgPool,
+    schema: &str,
+    object_name: &str,
+    object_type: &str, // "table" or "materialized_view"
+) -> Result<TableSchema, AppError> {
+    // 查询列信息
+    let columns: Vec<Column> = sqlx::query(
+        r#"
+        SELECT
+            c.name as column_name,
+            c.data_type,
+            c.is_nullable
+        FROM rw_catalog.rw_columns c
+        JOIN rw_catalog.rw_schemas s ON c.relation_id IN (
+            SELECT id FROM rw_catalog.rw_tables WHERE schema_id = s.id
+            UNION ALL
+            SELECT id FROM rw_catalog.rw_materialized_views WHERE schema_id = s.id
+        )
+        WHERE s.name = $1
+        AND c.relation_id = (
+            SELECT id FROM rw_catalog.rw_tables t
+            JOIN rw_catalog.rw_schemas sch ON t.schema_id = sch.id
+            WHERE t.name = $2 AND sch.name = $1
+            UNION ALL
+            SELECT id FROM rw_catalog.rw_materialized_views mv
+            JOIN rw_catalog.rw_schemas sch ON mv.schema_id = sch.id
+            WHERE mv.name = $2 AND sch.name = $1
+        )
+        ORDER BY c.position
+        "#
+    )
+    .bind(schema)
+    .bind(object_name)
+    .fetch_all(rw_pool)
+    .await?
+    .iter()
+    .map(|row| {
+        let data_type: String = row.get("data_type");
+        Column {
+            name: row.get("column_name"),
+            data_type,
+            is_nullable: row.get("is_nullable"),
+            default_value: None,
+            comment: None,
+            character_maximum_length: None,
+            numeric_precision: None,
+            numeric_scale: None,
+        }
+    })
+    .collect();
+
+    if columns.is_empty() {
+        return Err(crate::utils::error::AppError::NotFound(
+            format!("No columns found for {}.{}", schema, object_name)
+        ).into());
+    }
+
+    // 查询主键信息（只有表有主键，物化视图没有主键约束）
+    let primary_keys: Vec<String> = if object_type == "table" {
+        sqlx::query_scalar(
+            r#"
+            SELECT c.name
+            FROM rw_catalog.rw_columns c
+            JOIN rw_catalog.rw_tables t ON c.relation_id = t.id
+            JOIN rw_catalog.rw_schemas s ON t.schema_id = s.id
+            WHERE s.name = $1 AND t.name = $2 AND c.is_primary_key = true
+            ORDER BY c.position
+            "#
+        )
+        .bind(schema)
+        .bind(object_name)
+        .fetch_all(rw_pool)
+        .await?
+    } else {
+        // 物化视图没有主键，使用第一列作为主键
+        vec![columns[0].name.clone()]
+    };
+
+    Ok(TableSchema {
+        database: schema.to_string(),
+        table_name: object_name.to_string(),
+        columns,
+        primary_keys,
+        indexes: vec![],
+    })
+}
+
+/// 创建 Sink 到 StarRocks
+pub async fn create_sink(
+    State(pool): State<sqlx::MySqlPool>,
+    Json(request): Json<CreateSinkRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    tracing::info!(
+        "Creating sink from {}.{} ({}) to StarRocks {}.{}",
+        request.schema,
+        request.source_object,
+        request.source_type,
+        request.target_database,
+        request.target_table
+    );
+
+    // 获取配置
+    let config_repo = ConfigRepository::new(&pool);
+    let sr_config = config_repo.find_by_id(request.sr_config_id).await?;
+
+    // 连接到 RisingWave
+    let rw_pool = get_rw_pool(&pool, request.rw_config_id).await?;
+
+    // 获取表结构
+    let schema = get_rw_table_schema(
+        &rw_pool,
+        &request.schema,
+        &request.source_object,
+        &request.source_type
+    ).await?;
+
+    // 连接到 StarRocks
+    let mut sr_opts_builder = mysql_async::OptsBuilder::default()
+        .ip_or_hostname(&sr_config.host)
+        .tcp_port(sr_config.port)
+        .user(Some(&sr_config.username))
+        .pass(Some(&sr_config.password))
+        .prefer_socket(false);
+
+    if let Some(db) = &sr_config.database_name {
+        sr_opts_builder = sr_opts_builder.db_name(Some(db));
+    }
+
+    let sr_opts = mysql_async::Opts::from(sr_opts_builder);
+    let mut sr_conn = mysql_async::Conn::new(sr_opts).await.map_err(|e| {
+        crate::utils::error::AppError::Connection(format!("StarRocks connection failed: {}", e))
+    })?;
+
+    // 创建 StarRocks 数据库
+    let create_db_ddl = StarRocksDDLGenerator::generate_create_database_ddl(&request.target_database);
+    sr_conn.query_drop(&create_db_ddl).await.map_err(|e| {
+        crate::utils::error::AppError::Unknown(format!("Failed to create database: {}", e))
+    })?;
+
+    // 创建 StarRocks 表
+    let sr_table_ddl = StarRocksDDLGenerator::generate_table_ddl(
+        &schema,
+        &request.target_database,
+        &request.target_table,
+    )?;
+    sr_conn.query_drop(&sr_table_ddl).await.map_err(|e| {
+        crate::utils::error::AppError::Unknown(format!("Failed to create StarRocks table: {}", e))
+    })?;
+
+    // 创建 StarRocks Secret
+    let sr_secret_ddl = RisingWaveDDLGenerator::generate_starrocks_secret_ddl(&sr_config, &request.schema)?;
+    let _ = sqlx::query(&sr_secret_ddl).execute(&rw_pool).await; // 忽略错误（可能已存在）
+
+    // 创建 Sink - 需要构建一个临时的 SyncRequest
+    let sync_request = crate::models::SyncRequest {
+        mysql_config_id: 0, // 不需要
+        rw_config_id: request.rw_config_id,
+        sr_config_id: request.sr_config_id,
+        mysql_database: String::new(), // 不需要
+        mysql_table: String::new(), // 不需要
+        target_database: request.target_database.clone(),
+        target_table: request.target_table.clone(),
+        options: crate::models::SyncOptions {
+            recreate_rw_source: false,
+            recreate_sr_table: false,
+            truncate_sr_table: false,
+        },
+    };
+
+    let sink_ddl = RisingWaveDDLGenerator::generate_sink_ddl(
+        &sr_config,
+        &sync_request,
+        &schema
+    )?;
+
+    sqlx::query(&sink_ddl).execute(&rw_pool).await.map_err(|e| {
+        crate::utils::error::AppError::SqlGeneration(format!("Failed to create sink: {}", e))
+    })?;
+
+    // 关闭连接
+    let _ = sr_conn.disconnect().await;
+
+    tracing::info!(
+        "Successfully created sink from {}.{} to {}.{}",
+        request.schema,
+        request.source_object,
+        request.target_database,
+        request.target_table
+    );
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Successfully created sink from {}.{} to {}.{}",
+            request.schema, request.source_object,
+            request.target_database, request.target_table)
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_sink_request_serialization() {
+        let request = CreateSinkRequest {
+            rw_config_id: 1,
+            sr_config_id: 2,
+            schema: "public".to_string(),
+            source_object: "test_table".to_string(),
+            source_type: "table".to_string(),
+            target_database: "test_db".to_string(),
+            target_table: "test_table_sr".to_string(),
+        };
+
+        // Test that the struct can be serialized
+        let json = serde_json::to_string(&request);
+        assert!(json.is_ok());
+    }
+
+    #[test]
+    fn test_create_sink_request_deserialization() {
+        let json = r#"{
+            "rw_config_id": 1,
+            "sr_config_id": 2,
+            "schema": "public",
+            "source_object": "test_mv",
+            "source_type": "materialized_view",
+            "target_database": "analytics",
+            "target_table": "test_mv_sr"
+        }"#;
+
+        let request: Result<CreateSinkRequest, _> = serde_json::from_str(json);
+        assert!(request.is_ok());
+
+        let request = request.unwrap();
+        assert_eq!(request.rw_config_id, 1);
+        assert_eq!(request.sr_config_id, 2);
+        assert_eq!(request.schema, "public");
+        assert_eq!(request.source_object, "test_mv");
+        assert_eq!(request.source_type, "materialized_view");
+        assert_eq!(request.target_database, "analytics");
+        assert_eq!(request.target_table, "test_mv_sr");
+    }
+
+    #[test]
+    fn test_batch_delete_object_types() {
+        // Test valid object types
+        let valid_types = vec!["source", "table", "materialized_view", "sink"];
+        for obj_type in valid_types {
+            assert!(["source", "table", "materialized_view", "sink"].contains(&obj_type));
+        }
+    }
+
+    #[test]
+    fn test_rw_schema_serialization() {
+        let schema = RwSchema {
+            schema_name: "public".to_string(),
+        };
+        let json = serde_json::to_string(&schema);
+        assert!(json.is_ok());
+        assert!(json.unwrap().contains("public"));
+    }
 }
