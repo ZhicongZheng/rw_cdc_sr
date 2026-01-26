@@ -162,6 +162,23 @@ export interface PaginatedTasksResponse {
   offset: number;
 }
 
+// 泛型分页响应
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// RisingWave 对象查询参数
+export interface RwObjectQuery {
+  config_id: number;
+  schema?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // RisingWave 对象
 export interface RwSchema {
   schema_name: string;

@@ -13,6 +13,7 @@ import type {
   TaskHistoryQuery,
   TaskLog,
   PaginatedTasksResponse,
+  PaginatedResponse,
   RwSchema,
   RwSource,
   RwTable,
@@ -224,37 +225,77 @@ export const listRwSchemas = async (configId: number): Promise<RwSchema[]> => {
 
 export const listRwSources = async (
   configId: number,
-  schema: string
-): Promise<RwSource[]> => {
-  return apiFetch<RwSource[]>(
-    `/api/risingwave/sources?config_id=${configId}&schema=${schema}`
+  schema: string,
+  search?: string,
+  limit?: number,
+  offset?: number
+): Promise<PaginatedResponse<RwSource>> => {
+  const params = new URLSearchParams();
+  params.append('config_id', configId.toString());
+  params.append('schema', schema);
+  if (search) params.append('search', search);
+  if (limit !== undefined) params.append('limit', limit.toString());
+  if (offset !== undefined) params.append('offset', offset.toString());
+
+  return apiFetch<PaginatedResponse<RwSource>>(
+    `/api/risingwave/sources?${params.toString()}`
   );
 };
 
 export const listRwTables = async (
   configId: number,
-  schema: string
-): Promise<RwTable[]> => {
-  return apiFetch<RwTable[]>(
-    `/api/risingwave/tables?config_id=${configId}&schema=${schema}`
+  schema: string,
+  search?: string,
+  limit?: number,
+  offset?: number
+): Promise<PaginatedResponse<RwTable>> => {
+  const params = new URLSearchParams();
+  params.append('config_id', configId.toString());
+  params.append('schema', schema);
+  if (search) params.append('search', search);
+  if (limit !== undefined) params.append('limit', limit.toString());
+  if (offset !== undefined) params.append('offset', offset.toString());
+
+  return apiFetch<PaginatedResponse<RwTable>>(
+    `/api/risingwave/tables?${params.toString()}`
   );
 };
 
 export const listRwMaterializedViews = async (
   configId: number,
-  schema: string
-): Promise<RwMaterializedView[]> => {
-  return apiFetch<RwMaterializedView[]>(
-    `/api/risingwave/materialized_views?config_id=${configId}&schema=${schema}`
+  schema: string,
+  search?: string,
+  limit?: number,
+  offset?: number
+): Promise<PaginatedResponse<RwMaterializedView>> => {
+  const params = new URLSearchParams();
+  params.append('config_id', configId.toString());
+  params.append('schema', schema);
+  if (search) params.append('search', search);
+  if (limit !== undefined) params.append('limit', limit.toString());
+  if (offset !== undefined) params.append('offset', offset.toString());
+
+  return apiFetch<PaginatedResponse<RwMaterializedView>>(
+    `/api/risingwave/materialized_views?${params.toString()}`
   );
 };
 
 export const listRwSinks = async (
   configId: number,
-  schema: string
-): Promise<RwSink[]> => {
-  return apiFetch<RwSink[]>(
-    `/api/risingwave/sinks?config_id=${configId}&schema=${schema}`
+  schema: string,
+  search?: string,
+  limit?: number,
+  offset?: number
+): Promise<PaginatedResponse<RwSink>> => {
+  const params = new URLSearchParams();
+  params.append('config_id', configId.toString());
+  params.append('schema', schema);
+  if (search) params.append('search', search);
+  if (limit !== undefined) params.append('limit', limit.toString());
+  if (offset !== undefined) params.append('offset', offset.toString());
+
+  return apiFetch<PaginatedResponse<RwSink>>(
+    `/api/risingwave/sinks?${params.toString()}`
   );
 };
 

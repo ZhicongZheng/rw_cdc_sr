@@ -9,13 +9,28 @@ use mysql_async::prelude::*;
 
 use super::connection::AppError;
 use crate::db::ConfigRepository;
-use crate::models::{TableSchema, Column};
+use crate::models::{TableSchema, Column, PaginatedResponse};
 use crate::generators::{RisingWaveDDLGenerator, StarRocksDDLGenerator};
 
 #[derive(Deserialize)]
 pub struct RwObjectQuery {
     pub config_id: i64,
     pub schema: Option<String>,
+    pub search: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+impl RwObjectQuery {
+    /// 获取有效的 limit 值（默认20，范围1-100）
+    fn get_limit(&self) -> i64 {
+        self.limit.unwrap_or(20).max(1).min(100)
+    }
+
+    /// 获取有效的 offset 值（默认0，最小0）
+    fn get_offset(&self) -> i64 {
+        self.offset.unwrap_or(0).max(0)
+    }
 }
 
 #[derive(Deserialize)]
@@ -138,137 +153,281 @@ pub async fn list_schemas(
 pub async fn list_sources(
     State(pool): State<sqlx::MySqlPool>,
     Query(params): Query<RwObjectQuery>,
-) -> Result<Json<Vec<RwSource>>, AppError> {
+) -> Result<Json<PaginatedResponse<RwSource>>, AppError> {
     let rw_pool = get_rw_pool(&pool, params.config_id).await?;
-    let schema = params.schema.unwrap_or_else(|| "public".to_string());
+    let schema = params.schema.clone().unwrap_or_else(|| "public".to_string());
+    let limit = params.get_limit();
+    let offset = params.get_offset();
 
-    let sources: Vec<RwSource> = sqlx::query(
+    // 构建查询条件
+    let where_clause = if params.search.is_some() {
+        "WHERE sch.name = $1 AND s.name ILIKE '%' || $2 || '%'"
+    } else {
+        "WHERE sch.name = $1"
+    };
+
+    // 数据查询
+    let query_str = format!(
         "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.columns::text as columns_text, s.definition
          FROM rw_catalog.rw_sources s
          JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
-         WHERE sch.name = $1
-         ORDER BY s.name"
-    )
-    .bind(&schema)
-    .fetch_all(&rw_pool)
-    .await?
-    .iter()
-    .map(|row| {
-        let columns_text: String = row.get("columns_text");
-        let columns: Vec<String> = columns_text
-            .trim_matches(|c| c == '{' || c == '}')
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+         {}
+         ORDER BY s.name
+         LIMIT $3 OFFSET $4", where_clause
+    );
 
-        RwSource {
-            id: row.get("id"),
-            name: row.get("name"),
-            schema_name: row.get("schema_name"),
-            owner: row.get("owner"),
-            connector: row.get("connector"),
-            columns,
-            definition: row.get("definition"),
-        }
-    })
-    .collect();
+    let mut query = sqlx::query(&query_str).bind(&schema);
+    if let Some(search) = &params.search {
+        query = query.bind(search);
+    }
+    query = query.bind(limit).bind(offset);
 
-    Ok(Json(sources))
+    let sources: Vec<RwSource> = query
+        .fetch_all(&rw_pool)
+        .await?
+        .iter()
+        .map(|row| {
+            let columns_text: String = row.get("columns_text");
+            let columns: Vec<String> = columns_text
+                .trim_matches(|c| c == '{' || c == '}')
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            RwSource {
+                id: row.get("id"),
+                name: row.get("name"),
+                schema_name: row.get("schema_name"),
+                owner: row.get("owner"),
+                connector: row.get("connector"),
+                columns,
+                definition: row.get("definition"),
+            }
+        })
+        .collect();
+
+    // COUNT 查询
+    let count_str = format!(
+        "SELECT COUNT(*) as total
+         FROM rw_catalog.rw_sources s
+         JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
+         {}", where_clause
+    );
+
+    let mut count_query = sqlx::query(&count_str).bind(&schema);
+    if let Some(search) = &params.search {
+        count_query = count_query.bind(search);
+    }
+
+    let total: i64 = count_query
+        .fetch_one(&rw_pool)
+        .await?
+        .get("total");
+
+    Ok(Json(PaginatedResponse::new(sources, total, limit, offset)))
 }
 
 /// 列出 tables
 pub async fn list_tables(
     State(pool): State<sqlx::MySqlPool>,
     Query(params): Query<RwObjectQuery>,
-) -> Result<Json<Vec<RwTable>>, AppError> {
+) -> Result<Json<PaginatedResponse<RwTable>>, AppError> {
     let rw_pool = get_rw_pool(&pool, params.config_id).await?;
-    let schema = params.schema.unwrap_or_else(|| "public".to_string());
+    let schema = params.schema.clone().unwrap_or_else(|| "public".to_string());
+    let limit = params.get_limit();
+    let offset = params.get_offset();
 
-    let tables: Vec<RwTable> = sqlx::query(
+    // 构建查询条件
+    let where_clause = if params.search.is_some() {
+        "WHERE sch.name = $1 AND t.name ILIKE '%' || $2 || '%'"
+    } else {
+        "WHERE sch.name = $1"
+    };
+
+    // 数据查询
+    let query_str = format!(
         "SELECT t.id, t.name, sch.name as schema_name, t.owner, t.definition
          FROM rw_catalog.rw_tables t
          JOIN rw_catalog.rw_schemas sch ON t.schema_id = sch.id
-         WHERE sch.name = $1
-         ORDER BY t.name"
-    )
-    .bind(&schema)
-    .fetch_all(&rw_pool)
-    .await?
-    .iter()
-    .map(|row| RwTable {
-        id: row.get("id"),
-        name: row.get("name"),
-        schema_name: row.get("schema_name"),
-        owner: row.get("owner"),
-        definition: row.get("definition"),
-    })
-    .collect();
+         {}
+         ORDER BY t.name
+         LIMIT $3 OFFSET $4", where_clause
+    );
 
-    Ok(Json(tables))
+    let mut query = sqlx::query(&query_str).bind(&schema);
+    if let Some(search) = &params.search {
+        query = query.bind(search);
+    }
+    query = query.bind(limit).bind(offset);
+
+    let tables: Vec<RwTable> = query
+        .fetch_all(&rw_pool)
+        .await?
+        .iter()
+        .map(|row| RwTable {
+            id: row.get("id"),
+            name: row.get("name"),
+            schema_name: row.get("schema_name"),
+            owner: row.get("owner"),
+            definition: row.get("definition"),
+        })
+        .collect();
+
+    // COUNT 查询
+    let count_str = format!(
+        "SELECT COUNT(*) as total
+         FROM rw_catalog.rw_tables t
+         JOIN rw_catalog.rw_schemas sch ON t.schema_id = sch.id
+         {}", where_clause
+    );
+
+    let mut count_query = sqlx::query(&count_str).bind(&schema);
+    if let Some(search) = &params.search {
+        count_query = count_query.bind(search);
+    }
+
+    let total: i64 = count_query
+        .fetch_one(&rw_pool)
+        .await?
+        .get("total");
+
+    Ok(Json(PaginatedResponse::new(tables, total, limit, offset)))
 }
 
 /// 列出 materialized views
 pub async fn list_materialized_views(
     State(pool): State<sqlx::MySqlPool>,
     Query(params): Query<RwObjectQuery>,
-) -> Result<Json<Vec<RwMaterializedView>>, AppError> {
+) -> Result<Json<PaginatedResponse<RwMaterializedView>>, AppError> {
     let rw_pool = get_rw_pool(&pool, params.config_id).await?;
-    let schema = params.schema.unwrap_or_else(|| "public".to_string());
+    let schema = params.schema.clone().unwrap_or_else(|| "public".to_string());
+    let limit = params.get_limit();
+    let offset = params.get_offset();
 
-    let mvs: Vec<RwMaterializedView> = sqlx::query(
+    // 构建查询条件
+    let where_clause = if params.search.is_some() {
+        "WHERE sch.name = $1 AND mv.name ILIKE '%' || $2 || '%'"
+    } else {
+        "WHERE sch.name = $1"
+    };
+
+    // 数据查询
+    let query_str = format!(
         "SELECT mv.id, mv.name, sch.name as schema_name, mv.owner, mv.definition
          FROM rw_catalog.rw_materialized_views mv
          JOIN rw_catalog.rw_schemas sch ON mv.schema_id = sch.id
-         WHERE sch.name = $1
-         ORDER BY mv.name"
-    )
-    .bind(&schema)
-    .fetch_all(&rw_pool)
-    .await?
-    .iter()
-    .map(|row| RwMaterializedView {
-        id: row.get("id"),
-        name: row.get("name"),
-        schema_name: row.get("schema_name"),
-        owner: row.get("owner"),
-        definition: row.get("definition"),
-    })
-    .collect();
+         {}
+         ORDER BY mv.name
+         LIMIT $3 OFFSET $4", where_clause
+    );
 
-    Ok(Json(mvs))
+    let mut query = sqlx::query(&query_str).bind(&schema);
+    if let Some(search) = &params.search {
+        query = query.bind(search);
+    }
+    query = query.bind(limit).bind(offset);
+
+    let mvs: Vec<RwMaterializedView> = query
+        .fetch_all(&rw_pool)
+        .await?
+        .iter()
+        .map(|row| RwMaterializedView {
+            id: row.get("id"),
+            name: row.get("name"),
+            schema_name: row.get("schema_name"),
+            owner: row.get("owner"),
+            definition: row.get("definition"),
+        })
+        .collect();
+
+    // COUNT 查询
+    let count_str = format!(
+        "SELECT COUNT(*) as total
+         FROM rw_catalog.rw_materialized_views mv
+         JOIN rw_catalog.rw_schemas sch ON mv.schema_id = sch.id
+         {}", where_clause
+    );
+
+    let mut count_query = sqlx::query(&count_str).bind(&schema);
+    if let Some(search) = &params.search {
+        count_query = count_query.bind(search);
+    }
+
+    let total: i64 = count_query
+        .fetch_one(&rw_pool)
+        .await?
+        .get("total");
+
+    Ok(Json(PaginatedResponse::new(mvs, total, limit, offset)))
 }
 
 /// 列出 sinks
 pub async fn list_sinks(
     State(pool): State<sqlx::MySqlPool>,
     Query(params): Query<RwObjectQuery>,
-) -> Result<Json<Vec<RwSink>>, AppError> {
+) -> Result<Json<PaginatedResponse<RwSink>>, AppError> {
     let rw_pool = get_rw_pool(&pool, params.config_id).await?;
-    let schema = params.schema.unwrap_or_else(|| "public".to_string());
+    let schema = params.schema.clone().unwrap_or_else(|| "public".to_string());
+    let limit = params.get_limit();
+    let offset = params.get_offset();
 
-    let sinks: Vec<RwSink> = sqlx::query(
+    // 构建查询条件
+    let where_clause = if params.search.is_some() {
+        "WHERE sch.name = $1 AND s.name ILIKE '%' || $2 || '%'"
+    } else {
+        "WHERE sch.name = $1"
+    };
+
+    // 数据查询
+    let query_str = format!(
         "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.definition
          FROM rw_catalog.rw_sinks s
          JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
-         WHERE sch.name = $1
-         ORDER BY s.name"
-    )
-    .bind(&schema)
-    .fetch_all(&rw_pool)
-    .await?
-    .iter()
-    .map(|row| RwSink {
-        id: row.get("id"),
-        name: row.get("name"),
-        schema_name: row.get("schema_name"),
-        owner: row.get("owner"),
-        connector: row.get("connector"),
-        definition: row.get("definition"),
-    })
-    .collect();
+         {}
+         ORDER BY s.name
+         LIMIT $3 OFFSET $4", where_clause
+    );
 
-    Ok(Json(sinks))
+    let mut query = sqlx::query(&query_str).bind(&schema);
+    if let Some(search) = &params.search {
+        query = query.bind(search);
+    }
+    query = query.bind(limit).bind(offset);
+
+    let sinks: Vec<RwSink> = query
+        .fetch_all(&rw_pool)
+        .await?
+        .iter()
+        .map(|row| RwSink {
+            id: row.get("id"),
+            name: row.get("name"),
+            schema_name: row.get("schema_name"),
+            owner: row.get("owner"),
+            connector: row.get("connector"),
+            definition: row.get("definition"),
+        })
+        .collect();
+
+    // COUNT 查询
+    let count_str = format!(
+        "SELECT COUNT(*) as total
+         FROM rw_catalog.rw_sinks s
+         JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
+         {}", where_clause
+    );
+
+    let mut count_query = sqlx::query(&count_str).bind(&schema);
+    if let Some(search) = &params.search {
+        count_query = count_query.bind(search);
+    }
+
+    let total: i64 = count_query
+        .fetch_one(&rw_pool)
+        .await?
+        .get("total");
+
+    Ok(Json(PaginatedResponse::new(sinks, total, limit, offset)))
 }
 
 /// 删除 source
@@ -575,6 +734,87 @@ pub async fn create_sink(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rw_object_query_defaults() {
+        let query = RwObjectQuery {
+            config_id: 1,
+            schema: Some("public".to_string()),
+            search: None,
+            limit: None,
+            offset: None,
+        };
+
+        assert_eq!(query.get_limit(), 20);
+        assert_eq!(query.get_offset(), 0);
+    }
+
+    #[test]
+    fn test_rw_object_query_validation() {
+        // Test limit boundary conditions
+        let query_low_limit = RwObjectQuery {
+            config_id: 1,
+            schema: None,
+            search: None,
+            limit: Some(0),
+            offset: None,
+        };
+        assert_eq!(query_low_limit.get_limit(), 1); // Should clamp to min 1
+
+        let query_high_limit = RwObjectQuery {
+            config_id: 1,
+            schema: None,
+            search: None,
+            limit: Some(200),
+            offset: None,
+        };
+        assert_eq!(query_high_limit.get_limit(), 100); // Should clamp to max 100
+
+        let query_negative_limit = RwObjectQuery {
+            config_id: 1,
+            schema: None,
+            search: None,
+            limit: Some(-10),
+            offset: None,
+        };
+        assert_eq!(query_negative_limit.get_limit(), 1); // Negative should clamp to 1
+
+        // Test offset boundary conditions
+        let query_negative_offset = RwObjectQuery {
+            config_id: 1,
+            schema: None,
+            search: None,
+            limit: None,
+            offset: Some(-10),
+        };
+        assert_eq!(query_negative_offset.get_offset(), 0); // Should clamp to min 0
+
+        let query_valid_offset = RwObjectQuery {
+            config_id: 1,
+            schema: None,
+            search: None,
+            limit: None,
+            offset: Some(100),
+        };
+        assert_eq!(query_valid_offset.get_offset(), 100);
+    }
+
+    #[test]
+    fn test_paginated_response_creation() {
+        use crate::models::PaginatedResponse;
+
+        let data = vec![1, 2, 3, 4, 5];
+        let total = 100;
+        let limit = 20;
+        let offset = 40;
+
+        let response = PaginatedResponse::new(data.clone(), total, limit, offset);
+
+        assert_eq!(response.data, data);
+        assert_eq!(response.total, total);
+        assert_eq!(response.limit, limit);
+        assert_eq!(response.offset, offset);
+    }
 
     #[test]
     fn test_create_sink_request_serialization() {

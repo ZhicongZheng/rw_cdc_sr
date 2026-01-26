@@ -30,20 +30,58 @@ import type {
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
 
+// Tab 状态接口
+interface TabState<T> {
+  data: T[];
+  total: number;
+  currentPage: number;
+  pageSize: number;
+  search: string;
+  loading: boolean;
+}
+
 const RisingWaveManager: React.FC = () => {
   const [rwConnections, setRwConnections] = useState<DatabaseConfig[]>([]);
   const [selectedRwId, setSelectedRwId] = useState<number | null>(null);
   const [schemas, setSchemas] = useState<RwSchema[]>([]);
   const [selectedSchema, setSelectedSchema] = useState<string>("public");
-  const [loading, setLoading] = useState(false);
 
-  // Tab data states
-  const [sources, setSources] = useState<RwSource[]>([]);
-  const [tables, setTables] = useState<RwTable[]>([]);
-  const [materializedViews, setMaterializedViews] = useState<
-    RwMaterializedView[]
-  >([]);
-  const [sinks, setSinks] = useState<RwSink[]>([]);
+  // Tab state management
+  const [sourcesState, setSourcesState] = useState<TabState<RwSource>>({
+    data: [],
+    total: 0,
+    currentPage: 1,
+    pageSize: 20,
+    search: "",
+    loading: false,
+  });
+
+  const [tablesState, setTablesState] = useState<TabState<RwTable>>({
+    data: [],
+    total: 0,
+    currentPage: 1,
+    pageSize: 20,
+    search: "",
+    loading: false,
+  });
+
+  const [mvsState, setMvsState] = useState<TabState<RwMaterializedView>>({
+    data: [],
+    total: 0,
+    currentPage: 1,
+    pageSize: 20,
+    search: "",
+    loading: false,
+  });
+
+  const [sinksState, setSinksState] = useState<TabState<RwSink>>({
+    data: [],
+    total: 0,
+    currentPage: 1,
+    pageSize: 20,
+    search: "",
+    loading: false,
+  });
 
   // Modal states for viewing SQL definitions
   const [sqlModalVisible, setSqlModalVisible] = useState(false);
@@ -78,12 +116,40 @@ const RisingWaveManager: React.FC = () => {
     }
   }, [selectedRwId]);
 
-  // Load objects when schema changes
+  // Load objects when schema changes - reset all states
   useEffect(() => {
     if (selectedRwId && selectedSchema) {
-      loadAllObjects();
+      resetAllTabStates();
     }
   }, [selectedRwId, selectedSchema]);
+
+  // Load sources when its state changes
+  useEffect(() => {
+    if (selectedRwId && selectedSchema) {
+      loadSources();
+    }
+  }, [selectedRwId, selectedSchema, sourcesState.currentPage, sourcesState.pageSize, sourcesState.search]);
+
+  // Load tables when its state changes
+  useEffect(() => {
+    if (selectedRwId && selectedSchema) {
+      loadTables();
+    }
+  }, [selectedRwId, selectedSchema, tablesState.currentPage, tablesState.pageSize, tablesState.search]);
+
+  // Load materialized views when its state changes
+  useEffect(() => {
+    if (selectedRwId && selectedSchema) {
+      loadMaterializedViews();
+    }
+  }, [selectedRwId, selectedSchema, mvsState.currentPage, mvsState.pageSize, mvsState.search]);
+
+  // Load sinks when its state changes
+  useEffect(() => {
+    if (selectedRwId && selectedSchema) {
+      loadSinks();
+    }
+  }, [selectedRwId, selectedSchema, sinksState.currentPage, sinksState.pageSize, sinksState.search]);
 
   const loadConnections = async () => {
     try {
@@ -105,7 +171,6 @@ const RisingWaveManager: React.FC = () => {
   const loadSchemas = async () => {
     if (!selectedRwId) return;
 
-    setLoading(true);
     try {
       const schemaList = await api.listRwSchemas(selectedRwId);
       setSchemas(schemaList);
@@ -115,31 +180,133 @@ const RisingWaveManager: React.FC = () => {
       }
     } catch (error) {
       message.error("加载 Schema 失败: " + error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const loadAllObjects = async () => {
+  const resetAllTabStates = () => {
+    setSourcesState(prev => ({
+      ...prev,
+      currentPage: 1,
+      search: "",
+    }));
+    setTablesState(prev => ({
+      ...prev,
+      currentPage: 1,
+      search: "",
+    }));
+    setMvsState(prev => ({
+      ...prev,
+      currentPage: 1,
+      search: "",
+    }));
+    setSinksState(prev => ({
+      ...prev,
+      currentPage: 1,
+      search: "",
+    }));
+  };
+
+  const loadSources = async () => {
     if (!selectedRwId || !selectedSchema) return;
 
-    setLoading(true);
+    setSourcesState(prev => ({ ...prev, loading: true }));
     try {
-      const [sourcesData, tablesData, mvsData, sinksData] = await Promise.all([
-        api.listRwSources(selectedRwId, selectedSchema),
-        api.listRwTables(selectedRwId, selectedSchema),
-        api.listRwMaterializedViews(selectedRwId, selectedSchema),
-        api.listRwSinks(selectedRwId, selectedSchema),
-      ]);
+      const offset = (sourcesState.currentPage - 1) * sourcesState.pageSize;
+      const response = await api.listRwSources(
+        selectedRwId,
+        selectedSchema,
+        sourcesState.search || undefined,
+        sourcesState.pageSize,
+        offset
+      );
 
-      setSources(sourcesData);
-      setTables(tablesData);
-      setMaterializedViews(mvsData);
-      setSinks(sinksData);
+      setSourcesState(prev => ({
+        ...prev,
+        data: response.data,
+        total: response.total,
+        loading: false,
+      }));
     } catch (error) {
-      message.error("加载对象失败: " + error);
-    } finally {
-      setLoading(false);
+      message.error("加载 Sources 失败: " + error);
+      setSourcesState(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const loadTables = async () => {
+    if (!selectedRwId || !selectedSchema) return;
+
+    setTablesState(prev => ({ ...prev, loading: true }));
+    try {
+      const offset = (tablesState.currentPage - 1) * tablesState.pageSize;
+      const response = await api.listRwTables(
+        selectedRwId,
+        selectedSchema,
+        tablesState.search || undefined,
+        tablesState.pageSize,
+        offset
+      );
+
+      setTablesState(prev => ({
+        ...prev,
+        data: response.data,
+        total: response.total,
+        loading: false,
+      }));
+    } catch (error) {
+      message.error("加载 Tables 失败: " + error);
+      setTablesState(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const loadMaterializedViews = async () => {
+    if (!selectedRwId || !selectedSchema) return;
+
+    setMvsState(prev => ({ ...prev, loading: true }));
+    try {
+      const offset = (mvsState.currentPage - 1) * mvsState.pageSize;
+      const response = await api.listRwMaterializedViews(
+        selectedRwId,
+        selectedSchema,
+        mvsState.search || undefined,
+        mvsState.pageSize,
+        offset
+      );
+
+      setMvsState(prev => ({
+        ...prev,
+        data: response.data,
+        total: response.total,
+        loading: false,
+      }));
+    } catch (error) {
+      message.error("加载 Materialized Views 失败: " + error);
+      setMvsState(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const loadSinks = async () => {
+    if (!selectedRwId || !selectedSchema) return;
+
+    setSinksState(prev => ({ ...prev, loading: true }));
+    try {
+      const offset = (sinksState.currentPage - 1) * sinksState.pageSize;
+      const response = await api.listRwSinks(
+        selectedRwId,
+        selectedSchema,
+        sinksState.search || undefined,
+        sinksState.pageSize,
+        offset
+      );
+
+      setSinksState(prev => ({
+        ...prev,
+        data: response.data,
+        total: response.total,
+        loading: false,
+      }));
+    } catch (error) {
+      message.error("加载 Sinks 失败: " + error);
+      setSinksState(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -168,7 +335,7 @@ const RisingWaveManager: React.FC = () => {
     try {
       await api.deleteRwSource(selectedRwId, schemaName, name);
       message.success(`已删除 Source: ${name}`);
-      loadAllObjects();
+      loadSources();
     } catch (error) {
       message.error("删除失败: " + error);
     }
@@ -179,7 +346,7 @@ const RisingWaveManager: React.FC = () => {
     try {
       await api.deleteRwTable(selectedRwId, schemaName, name);
       message.success(`已删除 Table: ${name}`);
-      loadAllObjects();
+      loadTables();
     } catch (error) {
       message.error("删除失败: " + error);
     }
@@ -190,7 +357,7 @@ const RisingWaveManager: React.FC = () => {
     try {
       await api.deleteRwMaterializedView(selectedRwId, schemaName, name);
       message.success(`已删除 Materialized View: ${name}`);
-      loadAllObjects();
+      loadMaterializedViews();
     } catch (error) {
       message.error("删除失败: " + error);
     }
@@ -201,7 +368,7 @@ const RisingWaveManager: React.FC = () => {
     try {
       await api.deleteRwSink(selectedRwId, schemaName, name);
       message.success(`已删除 Sink: ${name}`);
-      loadAllObjects();
+      loadSinks();
     } catch (error) {
       message.error("删除失败: " + error);
     }
@@ -236,7 +403,11 @@ const RisingWaveManager: React.FC = () => {
       }
 
       clearSelection();
-      loadAllObjects();
+      // Reload the respective tab
+      if (objectType === 'source') loadSources();
+      else if (objectType === 'table') loadTables();
+      else if (objectType === 'materialized_view') loadMaterializedViews();
+      else if (objectType === 'sink') loadSinks();
     } catch (error) {
       message.error("批量删除失败: " + error);
     }
@@ -282,7 +453,7 @@ const RisingWaveManager: React.FC = () => {
       setCreateSinkModalVisible(false);
       sinkForm.resetFields();
       setCurrentSinkSource(null);
-      loadAllObjects(); // 刷新列表
+      loadSinks(); // 刷新 Sinks 列表
     } catch (error) {
       message.error("创建 Sink 失败: " + error);
     } finally {
@@ -592,16 +763,31 @@ const RisingWaveManager: React.FC = () => {
         </Space>
       </Card>
 
-      <Spin spinning={loading}>
-        <Card>
-          <Tabs defaultActiveKey="sources">
-            <TabPane tab={`Sources (${sources.length})`} key="sources">
+      <Card>
+        <Tabs defaultActiveKey="sources">
+          <TabPane tab={`Sources (${sourcesState.total})`} key="sources">
+            <Spin spinning={sourcesState.loading}>
+              <Space direction="vertical" style={{ width: "100%", marginBottom: 16 }}>
+                <Input.Search
+                  placeholder="搜索对象名称..."
+                  value={sourcesState.search}
+                  onChange={(e) => setSourcesState(prev => ({
+                    ...prev,
+                    search: e.target.value,
+                    currentPage: 1
+                  }))}
+                  onSearch={() => setSourcesState(prev => ({ ...prev, currentPage: 1 }))}
+                  allowClear
+                  style={{ width: 300 }}
+                />
+              </Space>
+
               {selectedSourceKeys.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <Popconfirm
                     title="批量删除确认"
                     description={`确定要删除选中的 ${selectedSourceKeys.length} 个 Source 吗？`}
-                    onConfirm={() => handleBatchDelete('source', selectedSourceKeys, sources, () => setSelectedSourceKeys([]))}
+                    onConfirm={() => handleBatchDelete('source', selectedSourceKeys, sourcesState.data, () => setSelectedSourceKeys([]))}
                     okText="确定"
                     cancelText="取消"
                   >
@@ -611,25 +797,57 @@ const RisingWaveManager: React.FC = () => {
                   </Popconfirm>
                 </div>
               )}
+
               <Table
                 columns={sourceColumns}
-                dataSource={sources}
+                dataSource={sourcesState.data}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                  current: sourcesState.currentPage,
+                  pageSize: sourcesState.pageSize,
+                  total: sourcesState.total,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条`,
+                  pageSizeOptions: ['10', '20', '50', '100'],
+                  onChange: (page, size) => {
+                    setSourcesState(prev => ({
+                      ...prev,
+                      currentPage: page,
+                      pageSize: size,
+                    }));
+                  },
+                }}
                 rowSelection={{
                   selectedRowKeys: selectedSourceKeys,
                   onChange: setSelectedSourceKeys,
                 }}
               />
-            </TabPane>
+            </Spin>
+          </TabPane>
 
-            <TabPane tab={`Tables (${tables.length})`} key="tables">
+          <TabPane tab={`Tables (${tablesState.total})`} key="tables">
+            <Spin spinning={tablesState.loading}>
+              <Space direction="vertical" style={{ width: "100%", marginBottom: 16 }}>
+                <Input.Search
+                  placeholder="搜索对象名称..."
+                  value={tablesState.search}
+                  onChange={(e) => setTablesState(prev => ({
+                    ...prev,
+                    search: e.target.value,
+                    currentPage: 1
+                  }))}
+                  onSearch={() => setTablesState(prev => ({ ...prev, currentPage: 1 }))}
+                  allowClear
+                  style={{ width: 300 }}
+                />
+              </Space>
+
               {selectedTableKeys.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <Popconfirm
                     title="批量删除确认"
                     description={`确定要删除选中的 ${selectedTableKeys.length} 个 Table 吗？`}
-                    onConfirm={() => handleBatchDelete('table', selectedTableKeys, tables, () => setSelectedTableKeys([]))}
+                    onConfirm={() => handleBatchDelete('table', selectedTableKeys, tablesState.data, () => setSelectedTableKeys([]))}
                     okText="确定"
                     cancelText="取消"
                   >
@@ -639,28 +857,60 @@ const RisingWaveManager: React.FC = () => {
                   </Popconfirm>
                 </div>
               )}
+
               <Table
                 columns={tableColumns}
-                dataSource={tables}
+                dataSource={tablesState.data}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                  current: tablesState.currentPage,
+                  pageSize: tablesState.pageSize,
+                  total: tablesState.total,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条`,
+                  pageSizeOptions: ['10', '20', '50', '100'],
+                  onChange: (page, size) => {
+                    setTablesState(prev => ({
+                      ...prev,
+                      currentPage: page,
+                      pageSize: size,
+                    }));
+                  },
+                }}
                 rowSelection={{
                   selectedRowKeys: selectedTableKeys,
                   onChange: setSelectedTableKeys,
                 }}
               />
-            </TabPane>
+            </Spin>
+          </TabPane>
 
-            <TabPane
-              tab={`Materialized Views (${materializedViews.length})`}
-              key="mvs"
-            >
+          <TabPane
+            tab={`Materialized Views (${mvsState.total})`}
+            key="mvs"
+          >
+            <Spin spinning={mvsState.loading}>
+              <Space direction="vertical" style={{ width: "100%", marginBottom: 16 }}>
+                <Input.Search
+                  placeholder="搜索对象名称..."
+                  value={mvsState.search}
+                  onChange={(e) => setMvsState(prev => ({
+                    ...prev,
+                    search: e.target.value,
+                    currentPage: 1
+                  }))}
+                  onSearch={() => setMvsState(prev => ({ ...prev, currentPage: 1 }))}
+                  allowClear
+                  style={{ width: 300 }}
+                />
+              </Space>
+
               {selectedMvKeys.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <Popconfirm
                     title="批量删除确认"
                     description={`确定要删除选中的 ${selectedMvKeys.length} 个 Materialized View 吗？`}
-                    onConfirm={() => handleBatchDelete('materialized_view', selectedMvKeys, materializedViews, () => setSelectedMvKeys([]))}
+                    onConfirm={() => handleBatchDelete('materialized_view', selectedMvKeys, mvsState.data, () => setSelectedMvKeys([]))}
                     okText="确定"
                     cancelText="取消"
                   >
@@ -670,25 +920,57 @@ const RisingWaveManager: React.FC = () => {
                   </Popconfirm>
                 </div>
               )}
+
               <Table
                 columns={mvColumns}
-                dataSource={materializedViews}
+                dataSource={mvsState.data}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                  current: mvsState.currentPage,
+                  pageSize: mvsState.pageSize,
+                  total: mvsState.total,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条`,
+                  pageSizeOptions: ['10', '20', '50', '100'],
+                  onChange: (page, size) => {
+                    setMvsState(prev => ({
+                      ...prev,
+                      currentPage: page,
+                      pageSize: size,
+                    }));
+                  },
+                }}
                 rowSelection={{
                   selectedRowKeys: selectedMvKeys,
                   onChange: setSelectedMvKeys,
                 }}
               />
-            </TabPane>
+            </Spin>
+          </TabPane>
 
-            <TabPane tab={`Sinks (${sinks.length})`} key="sinks">
+          <TabPane tab={`Sinks (${sinksState.total})`} key="sinks">
+            <Spin spinning={sinksState.loading}>
+              <Space direction="vertical" style={{ width: "100%", marginBottom: 16 }}>
+                <Input.Search
+                  placeholder="搜索对象名称..."
+                  value={sinksState.search}
+                  onChange={(e) => setSinksState(prev => ({
+                    ...prev,
+                    search: e.target.value,
+                    currentPage: 1
+                  }))}
+                  onSearch={() => setSinksState(prev => ({ ...prev, currentPage: 1 }))}
+                  allowClear
+                  style={{ width: 300 }}
+                />
+              </Space>
+
               {selectedSinkKeys.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <Popconfirm
                     title="批量删除确认"
                     description={`确定要删除选中的 ${selectedSinkKeys.length} 个 Sink 吗？`}
-                    onConfirm={() => handleBatchDelete('sink', selectedSinkKeys, sinks, () => setSelectedSinkKeys([]))}
+                    onConfirm={() => handleBatchDelete('sink', selectedSinkKeys, sinksState.data, () => setSelectedSinkKeys([]))}
                     okText="确定"
                     cancelText="取消"
                   >
@@ -698,20 +980,35 @@ const RisingWaveManager: React.FC = () => {
                   </Popconfirm>
                 </div>
               )}
+
               <Table
                 columns={sinkColumns}
-                dataSource={sinks}
+                dataSource={sinksState.data}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                  current: sinksState.currentPage,
+                  pageSize: sinksState.pageSize,
+                  total: sinksState.total,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条`,
+                  pageSizeOptions: ['10', '20', '50', '100'],
+                  onChange: (page, size) => {
+                    setSinksState(prev => ({
+                      ...prev,
+                      currentPage: page,
+                      pageSize: size,
+                    }));
+                  },
+                }}
                 rowSelection={{
                   selectedRowKeys: selectedSinkKeys,
                   onChange: setSelectedSinkKeys,
                 }}
               />
-            </TabPane>
-          </Tabs>
-        </Card>
-      </Spin>
+            </Spin>
+          </TabPane>
+        </Tabs>
+      </Card>
 
       {/* SQL Definition Modal */}
       <Modal
