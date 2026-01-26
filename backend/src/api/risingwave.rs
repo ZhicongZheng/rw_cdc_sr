@@ -166,21 +166,20 @@ pub async fn list_sources(
         "WHERE sch.name = $1"
     };
 
-    // 数据查询
+    // 数据查询 - LIMIT 和 OFFSET 必须直接在 SQL 中格式化，不能使用参数化查询
     let query_str = format!(
         "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.columns::text as columns_text, s.definition
          FROM rw_catalog.rw_sources s
          JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
          {}
          ORDER BY s.name
-         LIMIT $3 OFFSET $4", where_clause
+         LIMIT {} OFFSET {}", where_clause, limit, offset
     );
 
     let mut query = sqlx::query(&query_str).bind(&schema);
     if let Some(search) = &params.search {
         query = query.bind(search);
     }
-    query = query.bind(limit).bind(offset);
 
     let sources: Vec<RwSource> = query
         .fetch_all(&rw_pool)
@@ -245,21 +244,20 @@ pub async fn list_tables(
         "WHERE sch.name = $1"
     };
 
-    // 数据查询
+    // 数据查询 - LIMIT 和 OFFSET 必须直接在 SQL 中格式化，不能使用参数化查询
     let query_str = format!(
         "SELECT t.id, t.name, sch.name as schema_name, t.owner, t.definition
          FROM rw_catalog.rw_tables t
          JOIN rw_catalog.rw_schemas sch ON t.schema_id = sch.id
          {}
          ORDER BY t.name
-         LIMIT $3 OFFSET $4", where_clause
+         LIMIT {} OFFSET {}", where_clause, limit, offset
     );
 
     let mut query = sqlx::query(&query_str).bind(&schema);
     if let Some(search) = &params.search {
         query = query.bind(search);
     }
-    query = query.bind(limit).bind(offset);
 
     let tables: Vec<RwTable> = query
         .fetch_all(&rw_pool)
@@ -312,21 +310,20 @@ pub async fn list_materialized_views(
         "WHERE sch.name = $1"
     };
 
-    // 数据查询
+    // 数据查询 - LIMIT 和 OFFSET 必须直接在 SQL 中格式化，不能使用参数化查询
     let query_str = format!(
         "SELECT mv.id, mv.name, sch.name as schema_name, mv.owner, mv.definition
          FROM rw_catalog.rw_materialized_views mv
          JOIN rw_catalog.rw_schemas sch ON mv.schema_id = sch.id
          {}
          ORDER BY mv.name
-         LIMIT $3 OFFSET $4", where_clause
+         LIMIT {} OFFSET {}", where_clause, limit, offset
     );
 
     let mut query = sqlx::query(&query_str).bind(&schema);
     if let Some(search) = &params.search {
         query = query.bind(search);
     }
-    query = query.bind(limit).bind(offset);
 
     let mvs: Vec<RwMaterializedView> = query
         .fetch_all(&rw_pool)
@@ -379,21 +376,20 @@ pub async fn list_sinks(
         "WHERE sch.name = $1"
     };
 
-    // 数据查询
+    // 数据查询 - LIMIT 和 OFFSET 必须直接在 SQL 中格式化，不能使用参数化查询
     let query_str = format!(
         "SELECT s.id, s.name, sch.name as schema_name, s.owner, s.connector, s.definition
          FROM rw_catalog.rw_sinks s
          JOIN rw_catalog.rw_schemas sch ON s.schema_id = sch.id
          {}
          ORDER BY s.name
-         LIMIT $3 OFFSET $4", where_clause
+         LIMIT {} OFFSET {}", where_clause, limit, offset
     );
 
     let mut query = sqlx::query(&query_str).bind(&schema);
     if let Some(search) = &params.search {
         query = query.bind(search);
     }
-    query = query.bind(limit).bind(offset);
 
     let sinks: Vec<RwSink> = query
         .fetch_all(&rw_pool)

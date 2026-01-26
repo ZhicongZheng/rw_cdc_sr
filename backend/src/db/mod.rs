@@ -10,7 +10,7 @@ pub use repository::*;
 pub async fn init_database() -> Result<MySqlPool> {
     // 从环境变量读取数据库连接 URL
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "mysql://root:123456@localhost:3306/rw_cdc_sr".to_string());
+        .unwrap_or_else(|_| "mysql://risingwave_admin:vN3P4$WNKdGuNc@172.31.0.62:3306/rw_cdc".to_string());
 
     tracing::info!("Initializing database at: {}", mask_password(&database_url));
 

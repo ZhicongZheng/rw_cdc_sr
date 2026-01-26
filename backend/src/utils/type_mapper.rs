@@ -160,13 +160,7 @@ impl TypeMapper {
             }
 
             // 字符串类型
-            "CHAR" => {
-                if mysql_type.contains('(') {
-                    return Ok(mysql_type.to_uppercase());
-                }
-                "CHAR"
-            }
-            "VARCHAR" => {
+            "CHAR" | "VARCHAR" => {
                 if mysql_type.contains('(') {
                     return Ok(mysql_type.to_uppercase());
                 }
