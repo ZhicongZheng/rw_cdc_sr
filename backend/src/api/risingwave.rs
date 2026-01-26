@@ -392,18 +392,13 @@ async fn get_rw_table_schema(
             c.data_type,
             c.is_nullable
         FROM rw_catalog.rw_columns c
-        JOIN rw_catalog.rw_schemas s ON c.relation_id IN (
-            SELECT id FROM rw_catalog.rw_tables WHERE schema_id = s.id
-            UNION ALL
-            SELECT id FROM rw_catalog.rw_materialized_views WHERE schema_id = s.id
-        )
-        WHERE s.name = $1
-        AND c.relation_id = (
-            SELECT id FROM rw_catalog.rw_tables t
+        WHERE 
+        c.relation_id IN (
+            SELECT t.id FROM rw_catalog.rw_tables t
             JOIN rw_catalog.rw_schemas sch ON t.schema_id = sch.id
             WHERE t.name = $2 AND sch.name = $1
             UNION ALL
-            SELECT id FROM rw_catalog.rw_materialized_views mv
+            SELECT mv.id FROM rw_catalog.rw_materialized_views mv
             JOIN rw_catalog.rw_schemas sch ON mv.schema_id = sch.id
             WHERE mv.name = $2 AND sch.name = $1
         )
