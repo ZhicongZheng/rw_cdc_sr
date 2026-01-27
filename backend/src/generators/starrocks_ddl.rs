@@ -89,10 +89,9 @@ impl StarRocksDDLGenerator {
                {}
                ) ENGINE=OLAP
                {}
-               DISTRIBUTED BY HASH({}) BUCKETS 10
+               DISTRIBUTED BY HASH({})
                PROPERTIES (
                    "replication_num" = "1",
-                   "in_memory" = "false",
                    "storage_format" = "DEFAULT"
                );"#,
             target_database,
