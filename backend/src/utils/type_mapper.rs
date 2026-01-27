@@ -11,8 +11,8 @@ impl TypeMapper {
 
         let rw_type = match base_type {
             // 整数类型
-            "TINYINT" => "SMALLINT",
-            "SMALLINT" => "SMALLINT",
+            "TINYINT" => "TINYINT",
+            "SMALLINT" => "TINYINT",
             "MEDIUMINT" => "INTEGER",
             "INT" | "INTEGER" => "INTEGER",
             "BIGINT" => "BIGINT",

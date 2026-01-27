@@ -304,6 +304,7 @@ impl SyncEngine {
                     .await?;
 
                 let schema_ddl = RisingWaveDDLGenerator::generate_create_schema_ddl(&request.target_database);
+                tracing::info!("schema ddl : {}", &schema_ddl);
                 sqlx::query(&schema_ddl).execute(&rw_pool).await.map_err(|e| {
                     tracing::error!("Failed to create schema: {}", e);
                     e
@@ -372,6 +373,7 @@ impl SyncEngine {
                 &request.target_database,
                 &request.target_table
             )?;
+            tracing::info!("table ddl: {}", &table_ddl);
             sqlx::query(&table_ddl).execute(&rw_pool).await.map_err(|e| {
                 tracing::error!("Failed to create RisingWave table: {}", e);
                 e
@@ -440,6 +442,7 @@ impl SyncEngine {
                 &request.target_database,
                 &request.target_table,
             )?;
+            tracing::info!("starrocks table ddl: {}", &sr_table_ddl);
             sr_conn.query_drop(&sr_table_ddl).await.map_err(|e| {
                 tracing::error!("Failed to create StarRocks table: {}", e);
                 crate::utils::error::AppError::Unknown(format!("Failed to create table: {}", e))
@@ -470,6 +473,7 @@ impl SyncEngine {
                 &request,
                 &schema
             )?;
+            tracing::info!("sink ddl: {}", &sink_ddl);
             sqlx::query(&sink_ddl).execute(&rw_pool).await.map_err(|e| {
                 tracing::error!("Failed to create RisingWave sink: {}", e);
                 e
