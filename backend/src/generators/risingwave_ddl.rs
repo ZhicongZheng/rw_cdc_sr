@@ -16,7 +16,10 @@ impl RisingWaveDDLGenerator {
 
     /// 生成创建 SECRET 的语句（用于存储 MySQL 密码）
     /// 使用 target_database.mysql_pwd 作为 secret 名称
-    pub fn generate_secret_ddl(mysql_config: &DatabaseConfig, target_database: &str) -> Result<String> {
+    pub fn generate_secret_ddl(
+        mysql_config: &DatabaseConfig,
+        target_database: &str,
+    ) -> Result<String> {
         let secret_name = Self::get_secret_name(target_database);
 
         let ddl = format!(
@@ -35,7 +38,10 @@ impl RisingWaveDDLGenerator {
 
     /// 生成创建 StarRocks SECRET 的语句（用于存储 StarRocks 密码）
     /// 使用 target_database.starrocks_pwd 作为 secret 名称
-    pub fn generate_starrocks_secret_ddl(sr_config: &DatabaseConfig, target_database: &str) -> Result<String> {
+    pub fn generate_starrocks_secret_ddl(
+        sr_config: &DatabaseConfig,
+        target_database: &str,
+    ) -> Result<String> {
         let secret_name = Self::get_starrocks_secret_name(target_database);
 
         let ddl = format!(
@@ -127,10 +133,14 @@ impl RisingWaveDDLGenerator {
         schema: &TableSchema,
     ) -> Result<String> {
         // RisingWave table: {target_database}.{target_table}
-        let rw_table_name = Self::get_rw_table_name(&request.target_database, &request.target_table);
+        let rw_table_name =
+            Self::get_rw_table_name(&request.target_database, &request.target_table);
 
         // Sink 命名: {target_database}.{target_table}_to_sr_sink
-        let sink_name = format!("\"{}\".{}_to_sr_sink", &request.target_database, &request.target_table);
+        let sink_name = format!(
+            "\"{}\".{}_to_sr_sink",
+            &request.target_database, &request.target_table
+        );
 
         // 获取 StarRocks secret 名称
         let sr_secret_name = Self::get_starrocks_secret_name(&request.target_database);
@@ -153,15 +163,22 @@ impl RisingWaveDDLGenerator {
 
             // MySQL TIMESTAMP/DATETIME -> RisingWave TIMESTAMPTZ -> StarRocks DATETIME
             // 需要转换为 TIMESTAMP（不带时区）
-            if base_type == "TIMESTAMP" || base_type == "DATETIME" {
-                needs_type_conversion = true;
-                select_columns.push(format!("{}::TIMESTAMP as {}", col.name, col.name));
-            } else if base_type == "TINYINT" {
-                needs_type_conversion = true;
-                select_columns.push(format!("case {} when 1 then 1 when 0 then 0 end as {}", col.name, col.name));
-            } else {
-                select_columns.push(col.name.clone());
-            }
+            let _ = match base_type {
+                "TIMESTAMP" | "DATETIME" => {
+                    needs_type_conversion = true;
+                    select_columns.push(format!("{}::TIMESTAMP as {}", col.name, col.name));
+                }
+                "TINYINT" => {
+                    needs_type_conversion = true;
+                    select_columns.push(format!(
+                        "case {} when 1 then 1 when 0 then 0 end as {}",
+                        col.name, col.name
+                    ));
+                }
+                _ => {
+                    select_columns.push(col.name.clone());
+                }
+            };
         }
 
         let ddl = if needs_type_conversion {
@@ -225,7 +242,6 @@ impl RisingWaveDDLGenerator {
         Ok(ddl)
     }
 
-
     /// 生成删除 Table 的语句
     pub fn generate_drop_table_ddl(target_database: &str, target_table: &str) -> String {
         let table_name = format!("\"{}\".{}", target_database, target_table);
@@ -237,7 +253,6 @@ impl RisingWaveDDLGenerator {
         let sink_name = format!("\"{}\".{}_to_sr_sink", target_database, target_table);
         format!("DROP SINK IF EXISTS {};", sink_name)
     }
-
 }
 
 #[cfg(test)]
@@ -295,7 +310,13 @@ mod tests {
 
     #[test]
     fn test_generate_table_ddl() {
-        let ddl = RisingWaveDDLGenerator::generate_table_ddl("apnv3", "invoice_activity", "ods_apn", "invoice_activity").unwrap();
+        let ddl = RisingWaveDDLGenerator::generate_table_ddl(
+            "apnv3",
+            "invoice_activity",
+            "ods_apn",
+            "invoice_activity",
+        )
+        .unwrap();
         assert!(ddl.contains("CREATE TABLE IF NOT EXISTS \"ods_apn\".invoice_activity (*)"));
         assert!(ddl.contains("FROM \"ods_apn\".apnv3_source TABLE 'apnv3.invoice_activity'"));
     }
