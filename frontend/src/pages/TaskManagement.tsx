@@ -141,25 +141,36 @@ const TaskManagement: React.FC = () => {
 
   // 快速重新执行成功任务
   const handleQuickReExecute = async (task: SyncTask) => {
+    const isBatchTask = task.task_name.toLowerCase().includes('batch');
+
     Modal.confirm({
       title: '确认重新执行',
-      content: `确定要重新执行任务 "${task.task_name}" 吗？将使用相同的配置。`,
+      content: isBatchTask
+        ? `确定要重新执行批量任务 "${task.task_name}" 吗？将使用相同的配置。`
+        : `确定要重新执行任务 "${task.task_name}" 吗？将使用相同的配置。`,
       okText: '确定',
       cancelText: '取消',
       onOk: async () => {
         try {
-          const request = {
-            mysql_config_id: task.mysql_config_id,
-            rw_config_id: task.rw_config_id,
-            sr_config_id: task.sr_config_id,
-            mysql_database: task.mysql_database,
-            mysql_table: task.mysql_table,
-            target_database: task.target_database,
-            target_table: task.target_table,
-            options: parseOptions(task.options),
-          };
-          const newTaskId = await api.syncSingleTable(request);
-          message.success(`任务已重新提交，新任务 ID: ${newTaskId}`);
+          if (isBatchTask) {
+            // 批量任务使用 retry API
+            const newTaskId = await api.retrySyncTask(task.id);
+            message.success(`批量任务已重新提交，新任务 ID: ${newTaskId}`);
+          } else {
+            // 单表任务重新提交
+            const request = {
+              mysql_config_id: task.mysql_config_id,
+              rw_config_id: task.rw_config_id,
+              sr_config_id: task.sr_config_id,
+              mysql_database: task.mysql_database,
+              mysql_table: task.mysql_table,
+              target_database: task.target_database,
+              target_table: task.target_table,
+              options: parseOptions(task.options),
+            };
+            const newTaskId = await api.syncSingleTable(request);
+            message.success(`任务已重新提交，新任务 ID: ${newTaskId}`);
+          }
           loadTasks();
         } catch (error) {
           message.error('重新执行任务失败: ' + error);
@@ -189,23 +200,36 @@ const TaskManagement: React.FC = () => {
       if (!editingTask) return;
 
       setResubmitting(true);
-      const request = {
-        mysql_config_id: editingTask.mysql_config_id,
-        rw_config_id: editingTask.rw_config_id,
-        sr_config_id: editingTask.sr_config_id,
-        mysql_database: editingTask.mysql_database,
-        mysql_table: editingTask.mysql_table,
-        target_database: values.target_database,
-        target_table: values.target_table,
-        options: {
-          recreate_rw_source: values.recreate_rw_source,
-          recreate_sr_table: values.recreate_sr_table,
-          truncate_sr_table: values.truncate_sr_table,
-        },
-      };
 
-      const newTaskId = await api.syncSingleTable(request);
-      message.success(`任务已重新提交，新任务 ID: ${newTaskId}`);
+      const isBatchTask = editingTask.task_name.toLowerCase().includes('batch');
+
+      if (isBatchTask) {
+        // 批量任务：使用 retry API，只能修改同步选项
+        // 注意：retry API 不支持修改选项，所以这里需要提示用户
+        message.warning('批量任务暂不支持修改同步选项，将使用原配置重新执行');
+        const newTaskId = await api.retrySyncTask(editingTask.id);
+        message.success(`批量任务已重新提交，新任务 ID: ${newTaskId}`);
+      } else {
+        // 单表任务：使用 syncSingleTable API，可以修改所有配置
+        const request = {
+          mysql_config_id: editingTask.mysql_config_id,
+          rw_config_id: editingTask.rw_config_id,
+          sr_config_id: editingTask.sr_config_id,
+          mysql_database: editingTask.mysql_database,
+          mysql_table: editingTask.mysql_table,
+          target_database: values.target_database,
+          target_table: values.target_table,
+          options: {
+            recreate_rw_source: values.recreate_rw_source,
+            recreate_sr_table: values.recreate_sr_table,
+            truncate_sr_table: values.truncate_sr_table,
+          },
+        };
+
+        const newTaskId = await api.syncSingleTable(request);
+        message.success(`任务已重新提交，新任务 ID: ${newTaskId}`);
+      }
+
       setEditModalVisible(false);
       editForm.resetFields();
       setEditingTask(null);
@@ -281,20 +305,48 @@ const TaskManagement: React.FC = () => {
     {
       title: '源表',
       key: 'source',
-      render: (_, record) => (
-        <Tooltip title={`${record.mysql_database}.${record.mysql_table}`}>
-          <span>{record.mysql_database}.{record.mysql_table}</span>
-        </Tooltip>
-      ),
+      render: (_, record) => {
+        const isBatchTask = record.task_name.toLowerCase().includes('batch');
+        if (isBatchTask) {
+          // 批量任务：从 mysql_table 字段解析表列表
+          const match = record.mysql_table.match(/\[Batch: (.+)\]/);
+          const tableList = match ? match[1] : record.mysql_table;
+          return (
+            <Tooltip title={tableList}>
+              <span style={{ color: '#1890ff' }}>
+                <strong>批量任务</strong> ({record.mysql_database})
+              </span>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title={`${record.mysql_database}.${record.mysql_table}`}>
+            <span>{record.mysql_database}.{record.mysql_table}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '目标表',
       key: 'target',
-      render: (_, record) => (
-        <Tooltip title={`${record.target_database}.${record.target_table}`}>
-          <span>{record.target_database}.{record.target_table}</span>
-        </Tooltip>
-      ),
+      render: (_, record) => {
+        const isBatchTask = record.task_name.toLowerCase().includes('batch');
+        if (isBatchTask) {
+          // 批量任务：显示表数量
+          const match = record.target_table.match(/\[Batch: (\d+) tables\]/);
+          const tableCount = match ? match[1] : '多';
+          return (
+            <span style={{ color: '#1890ff' }}>
+              <strong>{tableCount} 个表</strong> → {record.target_database}
+            </span>
+          );
+        }
+        return (
+          <Tooltip title={`${record.target_database}.${record.target_table}`}>
+            <span>{record.target_database}.{record.target_table}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '状态',
@@ -320,63 +372,67 @@ const TaskManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
-      render: (_, record) => (
-        <Space size="small">
-          <Button
-            type="link"
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => handleViewDetail(record)}
-          >
-            详情
-          </Button>
-          {record.status === 'running' && (
+      width: 260,
+      render: (_, record) => {
+        const isBatchTask = record.task_name.toLowerCase().includes('batch');
+
+        return (
+          <Space size="small" wrap>
             <Button
               type="link"
               size="small"
-              danger
-              onClick={() => handleCancelTask(record.id)}
+              icon={<EyeOutlined />}
+              onClick={() => handleViewDetail(record)}
             >
-              取消
+              详情
             </Button>
-          )}
-          {record.status === 'failed' && (
-            <Button
-              type="link"
-              size="small"
-              icon={<RedoOutlined />}
-              onClick={() => handleRetryTask(record.id)}
-            >
-              重试
-            </Button>
-          )}
-          {record.status === 'completed' && (
-            <>
-              <Tooltip title="使用相同配置重新执行">
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<RedoOutlined />}
-                  onClick={() => handleQuickReExecute(record)}
-                >
-                  重新执行
-                </Button>
-              </Tooltip>
-              <Tooltip title="修改配置后重新执行">
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={() => handleEditAndReExecute(record)}
-                >
-                  编辑执行
-                </Button>
-              </Tooltip>
-            </>
-          )}
-        </Space>
-      ),
+            {record.status === 'running' && (
+              <Button
+                type="link"
+                size="small"
+                danger
+                onClick={() => handleCancelTask(record.id)}
+              >
+                取消
+              </Button>
+            )}
+            {record.status === 'failed' && (
+              <Button
+                type="link"
+                size="small"
+                icon={<RedoOutlined />}
+                onClick={() => handleRetryTask(record.id)}
+              >
+                重试
+              </Button>
+            )}
+            {record.status === 'completed' && (
+              <>
+                <Tooltip title={isBatchTask ? "批量任务按原配置重新执行" : "使用相同配置重新执行"}>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<RedoOutlined />}
+                    onClick={() => handleQuickReExecute(record)}
+                  >
+                    重新执行
+                  </Button>
+                </Tooltip>
+                <Tooltip title={isBatchTask ? "批量任务只可修改同步选项" : "修改配置后重新执行"}>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => handleEditAndReExecute(record)}
+                  >
+                    编辑执行
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -549,58 +605,107 @@ const TaskManagement: React.FC = () => {
               type="info"
             />
 
-            <Form
-              form={editForm}
-              layout="vertical"
-              initialValues={{
-                recreate_rw_source: false,
-                recreate_sr_table: false,
-                truncate_sr_table: false,
-              }}
-            >
-              <Form.Item
-                label="StarRocks 目标数据库"
-                name="target_database"
-                rules={[{ required: true, message: '请输入目标数据库' }]}
+            {editingTask.task_name.toLowerCase().includes('batch') ? (
+              // 批量任务：只显示同步选项
+              <>
+                <Alert
+                  message="批量任务"
+                  description="批量任务将使用原有的表映射配置，您只能修改同步选项。"
+                  type="warning"
+                  showIcon
+                />
+                <Form
+                  form={editForm}
+                  layout="vertical"
+                  initialValues={{
+                    recreate_rw_source: false,
+                    recreate_sr_table: false,
+                    truncate_sr_table: false,
+                  }}
+                >
+                  <Card title="同步选项" size="small">
+                    <Space direction="vertical">
+                      <Form.Item name="recreate_rw_source" valuePropName="checked" noStyle>
+                        <Checkbox>
+                          重建 RisingWave Source 和 Table（删除并重新创建）
+                        </Checkbox>
+                      </Form.Item>
+                      <Form.Item name="recreate_sr_table" valuePropName="checked" noStyle>
+                        <Checkbox>
+                          重建 StarRocks 表（删除并重新创建）
+                        </Checkbox>
+                      </Form.Item>
+                      <Form.Item
+                        name="truncate_sr_table"
+                        valuePropName="checked"
+                        noStyle
+                        dependencies={['recreate_sr_table']}
+                      >
+                        {({ getFieldValue }) => (
+                          <Checkbox disabled={getFieldValue('recreate_sr_table')}>
+                            清空 StarRocks 表数据（仅清空数据）
+                          </Checkbox>
+                        )}
+                      </Form.Item>
+                    </Space>
+                  </Card>
+                </Form>
+              </>
+            ) : (
+              // 单表任务：显示完整配置
+              <Form
+                form={editForm}
+                layout="vertical"
+                initialValues={{
+                  recreate_rw_source: false,
+                  recreate_sr_table: false,
+                  truncate_sr_table: false,
+                }}
               >
-                <Input placeholder="目标数据库名" />
-              </Form.Item>
+                <Form.Item
+                  label="StarRocks 目标数据库"
+                  name="target_database"
+                  rules={[{ required: true, message: '请输入目标数据库' }]}
+                >
+                  <Input placeholder="目标数据库名" />
+                </Form.Item>
 
-              <Form.Item
-                label="StarRocks 目标表"
-                name="target_table"
-                rules={[{ required: true, message: '请输入目标表名' }]}
-              >
-                <Input placeholder="目标表名" />
-              </Form.Item>
+                <Form.Item
+                  label="StarRocks 目标表"
+                  name="target_table"
+                  rules={[{ required: true, message: '请输入目标表名' }]}
+                >
+                  <Input placeholder="目标表名" />
+                </Form.Item>
 
-              <Card title="同步选项" size="small">
-                <Space direction="vertical">
-                  <Form.Item name="recreate_rw_source" valuePropName="checked" noStyle>
-                    <Checkbox>
-                      重建 RisingWave Source 和 Table（删除并重新创建）
-                    </Checkbox>
-                  </Form.Item>
-                  <Form.Item name="recreate_sr_table" valuePropName="checked" noStyle>
-                    <Checkbox>
-                      重建 StarRocks 表（删除并重新创建）
-                    </Checkbox>
-                  </Form.Item>
-                  <Form.Item
-                    name="truncate_sr_table"
-                    valuePropName="checked"
-                    noStyle
-                    dependencies={['recreate_sr_table']}
-                  >
-                    {({ getFieldValue }) => (
-                      <Checkbox disabled={getFieldValue('recreate_sr_table')}>
-                        清空 StarRocks 表数据（仅清空数据）
+                <Card title="同步选项" size="small">
+                  <Space direction="vertical">
+                    <Form.Item name="recreate_rw_source" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        重建 RisingWave Source 和 Table（删除并重新创建）
                       </Checkbox>
-                    )}
-                  </Form.Item>
-                </Space>
-              </Card>
-            </Form>
+                    </Form.Item>
+                    <Form.Item name="recreate_sr_table" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        重建 StarRocks 表（删除并重新创建）
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item
+                      name="truncate_sr_table"
+                      valuePropName="checked"
+                      noStyle
+                      dependencies={['recreate_sr_table']}
+                    >
+                      {({ getFieldValue }) => (
+                        <Checkbox disabled={getFieldValue('recreate_sr_table')}>
+                          清空 StarRocks 表数据（仅清空数据）
+                        </Checkbox>
+                      )}
+                    </Form.Item>
+                  </Space>
+                </Card>
+              </Form>
+            )}
           </Space>
         )}
       </Modal>
