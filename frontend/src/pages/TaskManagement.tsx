@@ -12,6 +12,10 @@ import {
   message,
   Tooltip,
   Progress,
+  Form,
+  Input,
+  Checkbox,
+  Alert,
 } from 'antd';
 import {
   ReloadOutlined,
@@ -22,10 +26,32 @@ import {
   ExclamationCircleOutlined,
   MinusCircleOutlined,
   RedoOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { SyncTask, TaskStatus, TaskLog, SyncProgress } from '../types';
+import type { SyncTask, TaskStatus, TaskLog, SyncProgress, SyncOptions } from '../types';
 import * as api from '../services/api';
+
+// 辅助函数：解析 options 字符串
+const parseOptions = (optionsStr: string): SyncOptions => {
+  try {
+    return JSON.parse(optionsStr);
+  } catch {
+    return {
+      recreate_rw_source: false,
+      recreate_sr_table: false,
+      truncate_sr_table: false,
+    };
+  }
+};
+
+interface EditFormValues {
+  target_database: string;
+  target_table: string;
+  recreate_rw_source: boolean;
+  recreate_sr_table: boolean;
+  truncate_sr_table: boolean;
+}
 
 const TaskManagement: React.FC = () => {
   const [tasks, setTasks] = useState<SyncTask[]>([]);
@@ -35,6 +61,12 @@ const TaskManagement: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<SyncTask | null>(null);
   const [taskLogs, setTaskLogs] = useState<TaskLog[]>([]);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
+
+  // 编辑并重新执行相关状态
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingTask, setEditingTask] = useState<SyncTask | null>(null);
+  const [editForm] = Form.useForm<EditFormValues>();
+  const [resubmitting, setResubmitting] = useState(false);
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -104,6 +136,88 @@ const TaskManagement: React.FC = () => {
       loadTasks();
     } catch (error) {
       message.error('重试任务失败: ' + error);
+    }
+  };
+
+  // 快速重新执行成功任务
+  const handleQuickReExecute = async (task: SyncTask) => {
+    Modal.confirm({
+      title: '确认重新执行',
+      content: `确定要重新执行任务 "${task.task_name}" 吗？将使用相同的配置。`,
+      okText: '确定',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const request = {
+            mysql_config_id: task.mysql_config_id,
+            rw_config_id: task.rw_config_id,
+            sr_config_id: task.sr_config_id,
+            mysql_database: task.mysql_database,
+            mysql_table: task.mysql_table,
+            target_database: task.target_database,
+            target_table: task.target_table,
+            options: parseOptions(task.options),
+          };
+          const newTaskId = await api.syncSingleTable(request);
+          message.success(`任务已重新提交，新任务 ID: ${newTaskId}`);
+          loadTasks();
+        } catch (error) {
+          message.error('重新执行任务失败: ' + error);
+        }
+      },
+    });
+  };
+
+  // 编辑并重新执行
+  const handleEditAndReExecute = (task: SyncTask) => {
+    setEditingTask(task);
+    const options = parseOptions(task.options);
+    editForm.setFieldsValue({
+      target_database: task.target_database,
+      target_table: task.target_table,
+      recreate_rw_source: options.recreate_rw_source || false,
+      recreate_sr_table: options.recreate_sr_table || false,
+      truncate_sr_table: options.truncate_sr_table || false,
+    });
+    setEditModalVisible(true);
+  };
+
+  // 提交编辑后的任务
+  const handleEditSubmit = async () => {
+    try {
+      const values = await editForm.validateFields();
+      if (!editingTask) return;
+
+      setResubmitting(true);
+      const request = {
+        mysql_config_id: editingTask.mysql_config_id,
+        rw_config_id: editingTask.rw_config_id,
+        sr_config_id: editingTask.sr_config_id,
+        mysql_database: editingTask.mysql_database,
+        mysql_table: editingTask.mysql_table,
+        target_database: values.target_database,
+        target_table: values.target_table,
+        options: {
+          recreate_rw_source: values.recreate_rw_source,
+          recreate_sr_table: values.recreate_sr_table,
+          truncate_sr_table: values.truncate_sr_table,
+        },
+      };
+
+      const newTaskId = await api.syncSingleTable(request);
+      message.success(`任务已重新提交，新任务 ID: ${newTaskId}`);
+      setEditModalVisible(false);
+      editForm.resetFields();
+      setEditingTask(null);
+      loadTasks();
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'errorFields' in error) {
+        // 表单验证错误，不处理
+        return;
+      }
+      message.error('提交任务失败: ' + (error as Error).message);
+    } finally {
+      setResubmitting(false);
     }
   };
 
@@ -206,9 +320,9 @@ const TaskManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 200,
       render: (_, record) => (
-        <Space>
+        <Space size="small">
           <Button
             type="link"
             size="small"
@@ -236,6 +350,30 @@ const TaskManagement: React.FC = () => {
             >
               重试
             </Button>
+          )}
+          {record.status === 'completed' && (
+            <>
+              <Tooltip title="使用相同配置重新执行">
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<RedoOutlined />}
+                  onClick={() => handleQuickReExecute(record)}
+                >
+                  重新执行
+                </Button>
+              </Tooltip>
+              <Tooltip title="修改配置后重新执行">
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => handleEditAndReExecute(record)}
+                >
+                  编辑执行
+                </Button>
+              </Tooltip>
+            </>
           )}
         </Space>
       ),
@@ -379,6 +517,90 @@ const TaskManagement: React.FC = () => {
                 <p style={{ textAlign: 'center', color: '#999' }}>暂无日志</p>
               )}
             </Card>
+          </Space>
+        )}
+      </Modal>
+
+      {/* 编辑并重新执行 Modal */}
+      <Modal
+        title="编辑并重新执行任务"
+        open={editModalVisible}
+        onCancel={() => {
+          setEditModalVisible(false);
+          editForm.resetFields();
+          setEditingTask(null);
+        }}
+        onOk={handleEditSubmit}
+        confirmLoading={resubmitting}
+        width={600}
+        okText="提交任务"
+        cancelText="取消"
+      >
+        {editingTask && (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Alert
+              message="任务信息"
+              description={
+                <div>
+                  <p><strong>任务名称：</strong>{editingTask.task_name}</p>
+                  <p><strong>源表：</strong>{editingTask.mysql_database}.{editingTask.mysql_table}</p>
+                </div>
+              }
+              type="info"
+            />
+
+            <Form
+              form={editForm}
+              layout="vertical"
+              initialValues={{
+                recreate_rw_source: false,
+                recreate_sr_table: false,
+                truncate_sr_table: false,
+              }}
+            >
+              <Form.Item
+                label="StarRocks 目标数据库"
+                name="target_database"
+                rules={[{ required: true, message: '请输入目标数据库' }]}
+              >
+                <Input placeholder="目标数据库名" />
+              </Form.Item>
+
+              <Form.Item
+                label="StarRocks 目标表"
+                name="target_table"
+                rules={[{ required: true, message: '请输入目标表名' }]}
+              >
+                <Input placeholder="目标表名" />
+              </Form.Item>
+
+              <Card title="同步选项" size="small">
+                <Space direction="vertical">
+                  <Form.Item name="recreate_rw_source" valuePropName="checked" noStyle>
+                    <Checkbox>
+                      重建 RisingWave Source 和 Table（删除并重新创建）
+                    </Checkbox>
+                  </Form.Item>
+                  <Form.Item name="recreate_sr_table" valuePropName="checked" noStyle>
+                    <Checkbox>
+                      重建 StarRocks 表（删除并重新创建）
+                    </Checkbox>
+                  </Form.Item>
+                  <Form.Item
+                    name="truncate_sr_table"
+                    valuePropName="checked"
+                    noStyle
+                    dependencies={['recreate_sr_table']}
+                  >
+                    {({ getFieldValue }) => (
+                      <Checkbox disabled={getFieldValue('recreate_sr_table')}>
+                        清空 StarRocks 表数据（仅清空数据）
+                      </Checkbox>
+                    )}
+                  </Form.Item>
+                </Space>
+              </Card>
+            </Form>
           </Space>
         )}
       </Modal>

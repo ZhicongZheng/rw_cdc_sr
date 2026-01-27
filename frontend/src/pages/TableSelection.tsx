@@ -24,6 +24,8 @@ interface SelectedTable {
   targetTable: string;
 }
 
+const STORAGE_KEY = 'table_selection_batch_target_db';
+
 const TableSelection: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [mysqlConnections, setMysqlConnections] = useState<DatabaseConfig[]>(
@@ -51,6 +53,21 @@ const TableSelection: React.FC = () => {
   });
 
   const [syncing, setSyncing] = useState(false);
+
+  // 从 localStorage 恢复批量目标数据库
+  useEffect(() => {
+    const cachedBatchTargetDb = localStorage.getItem(STORAGE_KEY);
+    if (cachedBatchTargetDb) {
+      setBatchTargetDatabase(cachedBatchTargetDb);
+    }
+  }, []);
+
+  // 保存批量目标数据库到 localStorage
+  useEffect(() => {
+    if (batchTargetDatabase) {
+      localStorage.setItem(STORAGE_KEY, batchTargetDatabase);
+    }
+  }, [batchTargetDatabase]);
 
   // 加载连接列表
   useEffect(() => {
