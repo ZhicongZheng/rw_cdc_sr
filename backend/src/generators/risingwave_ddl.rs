@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::models::{DatabaseConfig, SyncRequest, TableSchema};
 use crate::utils::error::{AppError, Result};
 use rand::Rng;
@@ -154,6 +156,9 @@ impl RisingWaveDDLGenerator {
             if base_type == "TIMESTAMP" || base_type == "DATETIME" {
                 needs_type_conversion = true;
                 select_columns.push(format!("{}::TIMESTAMP as {}", col.name, col.name));
+            } else if base_type == "TINYINT" {
+                needs_type_conversion = true;
+                select_columns.push(format!("case {} when 1 then 1 when 0 then 0 end as {}", col.name, col.name));
             } else {
                 select_columns.push(col.name.clone());
             }
