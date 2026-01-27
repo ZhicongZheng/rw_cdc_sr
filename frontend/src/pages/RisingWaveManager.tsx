@@ -30,6 +30,23 @@ import type {
 const { Title, Paragraph } = Typography;
 const { TabPane } = Tabs;
 
+// 防抖 Hook：延迟更新值
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
 // Tab 状态接口
 interface TabState<T> {
   data: T[];
@@ -120,36 +137,42 @@ const RisingWaveManager: React.FC = () => {
   useEffect(() => {
     if (selectedRwId && selectedSchema) {
       resetAllTabStates();
-    }
+       }
   }, [selectedRwId, selectedSchema]);
 
-  // Load sources when its state changes
+  // Debounced search values for each tab
+  const debouncedSourcesSearch = useDebounce(sourcesState.search, 500);
+  const debouncedTablesSearch = useDebounce(tablesState.search, 500);
+  const debouncedMvsSearch = useDebounce(mvsState.search, 500);
+  const debouncedSinksSearch = useDebounce(sinksState.search, 500);
+
+  // Load sources when its state changes (using debounced search)
   useEffect(() => {
     if (selectedRwId && selectedSchema) {
       loadSources();
     }
-  }, [selectedRwId, selectedSchema, sourcesState.currentPage, sourcesState.pageSize, sourcesState.search]);
+  }, [selectedRwId, selectedSchema, sourcesState.currentPage, sourcesState.pageSize, debouncedSourcesSearch]);
 
-  // Load tables when its state changes
+  // Load tables when its state changes (using debounced search)
   useEffect(() => {
     if (selectedRwId && selectedSchema) {
       loadTables();
     }
-  }, [selectedRwId, selectedSchema, tablesState.currentPage, tablesState.pageSize, tablesState.search]);
+  }, [selectedRwId, selectedSchema, tablesState.currentPage, tablesState.pageSize, debouncedTablesSearch]);
 
-  // Load materialized views when its state changes
+  // Load materialized views when its state changes (using debounced search)
   useEffect(() => {
     if (selectedRwId && selectedSchema) {
       loadMaterializedViews();
     }
-  }, [selectedRwId, selectedSchema, mvsState.currentPage, mvsState.pageSize, mvsState.search]);
+  }, [selectedRwId, selectedSchema, mvsState.currentPage, mvsState.pageSize, debouncedMvsSearch]);
 
-  // Load sinks when its state changes
+  // Load sinks when its state changes (using debounced search)
   useEffect(() => {
     if (selectedRwId && selectedSchema) {
       loadSinks();
     }
-  }, [selectedRwId, selectedSchema, sinksState.currentPage, sinksState.pageSize, sinksState.search]);
+  }, [selectedRwId, selectedSchema, sinksState.currentPage, sinksState.pageSize, debouncedSinksSearch]);
 
   const loadConnections = async () => {
     try {
