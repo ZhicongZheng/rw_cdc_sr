@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::models::{DatabaseConfig, SyncRequest, TableSchema};
 use crate::utils::error::{AppError, Result};
 use rand::Rng;
@@ -171,8 +169,8 @@ impl RisingWaveDDLGenerator {
                 "TINYINT" => {
                     needs_type_conversion = true;
                     select_columns.push(format!(
-                        "case {} when 1 then 1 when 0 then 0 end as {}",
-                        col.name, col.name
+                        "case {} when 1 then 1 when 0 then 0 else {} end as {}",
+                        col.name, col.name, col.name
                     ));
                 }
                 _ => {
